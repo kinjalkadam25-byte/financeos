@@ -135,13 +135,83 @@ function buildSample() {
 }
 
 /* --------------------------------------------------------------- data hook */
+/* ----------------------------------------------------------------- backend
+   PASTE your Apps Script Web App URL and a token below to connect the app to
+   your Google Sheet. Leave APPS_SCRIPT_URL blank to run in local/in-memory
+   mode (data clears on refresh — useful as a demo).
+
+   The token raises the bar against casual access but is visible in the page
+   source, so it is NOT a strong secret. Set the same value here and in your
+   Apps Script (run setToken() there).
+   -------------------------------------------------------------------------- */
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9pALAjN_EDDkIp1-OZf_y-qLa5jnTtN53Dse1vUzzIim93eYZixBufxwlgNCQ7_4W/exec"; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
+const API_TOKEN = "fos_9x4k2p";       // any string; must match the token set in Apps Script
+const CONNECTED = /^https:\/\//.test(APPS_SCRIPT_URL);
+
+async function apiGet(action, extra = {}) {
+  const qs = new URLSearchParams({ action, token: API_TOKEN, ...extra }).toString();
+  const res = await fetch(`${APPS_SCRIPT_URL}?${qs}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+async function apiPost(action, payload = {}) {
+  // text/plain keeps this a CORS-safe "simple request" (no preflight)
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action, token: API_TOKEN, ...payload }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+/* --------------------------------------------------------------- data hook
+   Loads from the Sheet on mount (if connected), writes through on every
+   change, and surfaces loading / error so the UI can respond. Falls back to
+   in-memory state when not connected.
+   -------------------------------------------------------------------------- */
 function useFinanceData() {
   const [txns, setTxns] = useState([]);
-  const addTransaction = useCallback((t) => setTxns((p) => [{ ...t, id: Date.now() + Math.random() }, ...p]), []);
-  const removeTransaction = useCallback((id) => setTxns((p) => p.filter((t) => t.id !== id)), []);
-  const clearAll = useCallback(() => setTxns([]), []);
-  return { txns, addTransaction, removeTransaction, clearAll };
+  const [loading, setLoading] = useState(CONNECTED);
+  const [error, setError] = useState("");
+
+  const load = useCallback(() => {
+    if (!CONNECTED) { setLoading(false); return; }
+    setLoading(true); setError("");
+    apiGet("getAll")
+      .then((d) => setTxns(Array.isArray(d.expenses) ? d.expenses : []))
+      .catch((e) => setError(e.message || "Could not load your data"))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const addTransaction = useCallback((t) => {
+    const row = { ...t, id: String(t.id || Date.now() + "" + Math.floor(Math.random() * 1000)) };
+    setTxns((p) => [row, ...p]);                       // optimistic
+    if (CONNECTED) apiPost("addExpense", row).catch((e) => setError(e.message));
+  }, []);
+
+  const removeTransaction = useCallback((id) => {
+    setTxns((p) => p.filter((t) => String(t.id) !== String(id)));
+    if (CONNECTED) apiPost("deleteExpense", { id: String(id) }).catch((e) => setError(e.message));
+  }, []);
+
+  const bulkAdd = useCallback((rows) => {
+    const stamped = rows.map((r) => ({ ...r, id: String(r.id || Date.now() + "" + Math.floor(Math.random() * 100000)) }));
+    setTxns((p) => [...stamped, ...p]);
+    if (CONNECTED) apiPost("bulkAdd", { expenses: stamped }).catch((e) => setError(e.message));
+  }, []);
+
+  const clearAll = useCallback(() => {
+    setTxns([]);
+    if (CONNECTED) apiPost("clearAll").catch((e) => setError(e.message));
+  }, []);
+
+  return { txns, loading, error, retry: load, dismissError: () => setError(""), addTransaction, removeTransaction, bulkAdd, clearAll };
 }
+
 
 /* ---------------------------------------------------------------- selectors */
 const fmt = (n) => Math.round(n).toLocaleString("en-IN");
@@ -256,6 +326,8 @@ function ThemeStyles() {
   .hr{height:1px;background:var(--line)}
   .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid var(--line2);font-size:10px;font-weight:600;color:var(--text2);font-family:'JetBrains Mono',monospace}
   .fos button:focus-visible,.fos input:focus-visible,.fos select:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-dim)}
+  .screen-h{height:100vh;height:100dvh}
+  .min-screen-h{min-height:100vh;min-height:100dvh}
   `;
   return <style>{css}</style>;
 }
@@ -338,7 +410,7 @@ function SectionShell({ id, children }) {
   const { scrollYProgress } = useScroll({ target: ref, container: container || undefined, offset: ["start end", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], [reduce ? 0 : 28, reduce ? 0 : -28]);
   return (
-    <section id={id} ref={ref} className="min-h-screen w-full flex flex-col justify-center px-7 md:px-14 lg:pl-48 lg:pr-20 py-36">
+    <section id={id} ref={ref} className="min-screen-h w-full flex flex-col justify-center px-7 md:px-14 lg:pl-48 lg:pr-20 py-36">
       <motion.div style={{ y }} className="w-full max-w-5xl mx-auto lg:mx-0">
         {typeof children === "function" ? children(inView) : children}
       </motion.div>
@@ -845,9 +917,11 @@ function Goals({ txns, idx }) {
   const [goals, setGoals] = useState([{ id: 1, name: "Bali trip", target: 100000, saved: 0 }, { id: 2, name: "Emergency fund", target: 200000, saved: 0 }]);
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
+  const [fundId, setFundId] = useState(null);
+  const [fundAmt, setFundAmt] = useState("");
   const pace = useMemo(() => avgSurplus(txns, idx), [txns, idx]);
   const add = () => { const t = parseFloat(target) || 0; if (!name.trim() || t <= 0) return; setGoals((g) => [...g, { id: Date.now(), name: name.trim(), target: t, saved: 0 }]); setName(""); setTarget(""); };
-  const fund = (id) => { const v = parseFloat(window.prompt("Add how much to this goal? (₹)")); if (!v || v <= 0) return; setGoals((g) => g.map((x) => (x.id === id ? { ...x, saved: x.saved + v } : x))); };
+  const confirmFund = () => { const v = parseFloat(fundAmt) || 0; if (v > 0) setGoals((g) => g.map((x) => (x.id === fundId ? { ...x, saved: x.saved + v } : x))); setFundId(null); setFundAmt(""); };
   const remove = (id) => setGoals((g) => g.filter((x) => x.id !== id));
   return (
     <SectionShell id="goals">
@@ -869,7 +943,7 @@ function Goals({ txns, idx }) {
                 <div className="flex justify-between items-start gap-4 mb-4"><div><div className="font-medium" style={{ fontSize: 15 }}>{g.name}</div><div className="text-muted mt-1" style={{ fontSize: 12 }}>{pct.toFixed(0)}% funded</div></div><div className="mono text-accent text-right whitespace-nowrap" style={{ fontSize: 12 }}>{eta}</div></div>
                 <div className="rounded-full overflow-hidden mb-2.5" style={{ height: 7, background: "var(--surface2)" }}><motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg,var(--credit),#a4ccab)", transformOrigin: "left" }} initial={{ scaleX: 0 }} animate={{ scaleX: pct / 100 }} transition={{ duration: 0.9, ease: EASE }} /></div>
                 <div className="flex justify-between mono text-2" style={{ fontSize: 13 }}><span>₹{fmt(saved)}</span><span className="text-muted">₹{fmt(g.target)}</span></div>
-                <div className="flex gap-2 mt-4"><button onClick={() => fund(g.id)} className="rounded-full px-4 py-1.5 font-semibold text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Add funds</button><button onClick={() => remove(g.id)} className="rounded-full px-4 py-1.5 font-semibold text-muted bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Remove</button></div>
+                <div className="flex gap-2 mt-4"><button onClick={() => { setFundAmt(""); setFundId(g.id); }} className="rounded-full px-4 py-1.5 font-semibold text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Add funds</button><button onClick={() => remove(g.id)} className="rounded-full px-4 py-1.5 font-semibold text-muted bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Remove</button></div>
               </motion.div>
             );
           })}
@@ -883,6 +957,13 @@ function Goals({ txns, idx }) {
         </div>
       </Reveal>
       <Reveal delay={3}><div className="text-muted mt-4 flex items-center gap-1.5" style={{ fontSize: 12 }}><Target size={12} /> Kept in memory for this demo; persists to your Sheets backend in production.</div></Reveal>
+      <Dialog open={fundId != null} title="Add funds" onClose={() => { setFundId(null); setFundAmt(""); }}>
+        <input autoFocus type="number" value={fundAmt} onChange={(e) => setFundAmt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmFund(); }} placeholder="Amount ₹" className="lux-input rounded-xl px-3.5 py-3 w-full mb-4" style={{ fontSize: 14 }} />
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => { setFundId(null); setFundAmt(""); }} className="rounded-full px-4 py-2 text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 13 }}>Cancel</button>
+          <button onClick={confirmFund} className="accent-grad rounded-full px-4 py-2 font-bold cursor-pointer border-0" style={{ color: "#1a160c", fontSize: 13 }}>Add</button>
+        </div>
+      </Dialog>
     </SectionShell>
   );
 }
@@ -1006,6 +1087,23 @@ function ImportModal({ onConfirm, onClose }) {
   );
 }
 
+function Dialog({ open, title, children, onClose }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(8,11,10,.8)", backdropFilter: "blur(12px)" }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} onClick={onClose}>
+          <motion.div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm glass rounded-2xl p-6" style={{ boxShadow: "0 40px 100px rgba(0,0,0,.6)" }}
+            initial={{ scale: 0.96, y: 10, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.98, opacity: 0 }} transition={{ duration: 0.25, ease: EASE }}>
+            {title && <div className="font-medium mb-2" style={{ fontSize: 16 }}>{title}</div>}
+            {children}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 /* ============================================================ COMMAND PALETTE */
 function CommandPalette({ open, onClose, onJump, onImport, onAdd, onClear }) {
   const [q, setQ] = useState("");
@@ -1050,12 +1148,25 @@ function CommandPalette({ open, onClose, onJump, onImport, onAdd, onClear }) {
 }
 
 /* =================================================================== APP */
+function LoadingScreen() {
+  return (
+    <div className="fos font-ui bg-void text-app screen-h flex flex-col items-center justify-center gap-5">
+      <ThemeStyles />
+      <div className="fixed inset-0 ambient pointer-events-none" />
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }}
+        style={{ width: 30, height: 30, borderRadius: "50%", border: "2px solid var(--line2)", borderTopColor: "var(--accent)" }} />
+      <span className="micro text-muted">Loading your ledger…</span>
+    </div>
+  );
+}
+
 export default function App() {
-  const { txns, addTransaction, removeTransaction, clearAll } = useFinanceData();
+  const { txns, loading, error, retry, dismissError, addTransaction, removeTransaction, bulkAdd, clearAll } = useFinanceData();
   const [offset, setOffset] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [toast, setToast] = useState("");
   const scrollRef = useRef(null);
   const toastTimer = useRef(0);
@@ -1070,7 +1181,7 @@ export default function App() {
   const nextMonth = () => setOffset((o) => Math.min(0, o + 1));
   const showToast = (msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(""), 2400); };
   const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(t.type === "credit" ? "Credit recorded" : "Debit recorded"); };
-  const handleBulkAdd = (rows) => { rows.forEach((r) => addTransaction({ note: r.note, cat: r.cat, type: r.type, amt: r.amt, date: r.date, bank: r.bank })); showToast(`${rows.length} transaction${rows.length > 1 ? "s" : ""} imported`); };
+  const handleBulkAdd = (rows) => { bulkAdd(rows.map((r) => ({ note: r.note, cat: r.cat, type: r.type, amt: r.amt, date: r.date, bank: r.bank }))); showToast(`${rows.length} transaction${rows.length > 1 ? "s" : ""} imported`); };
 
   useEffect(() => {
     const h = (e) => {
@@ -1081,12 +1192,24 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  if (loading) return <LoadingScreen />;
+
   return (
     <ScrollContext.Provider value={scrollRef}>
       <div className="fos font-ui bg-void text-app">
         <ThemeStyles />
         <GlowField scrollYProgress={scrollYProgress} />
         <motion.div className="fixed top-0 left-0 right-0 z-50 accent-grad" style={{ height: 2, scaleX: scrollYProgress, transformOrigin: "0%" }} />
+        <AnimatePresence>
+          {error && (
+            <motion.div initial={{ y: -60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -60, opacity: 0 }} transition={{ duration: 0.3, ease: EASE }}
+              className="fixed top-0 inset-x-0 z-[55] flex items-center justify-center gap-4 px-4 py-2.5" style={{ background: "rgba(210,145,110,.16)", borderBottom: "1px solid rgba(210,145,110,.3)", backdropFilter: "blur(8px)" }}>
+              <span className="text-debit" style={{ fontSize: 13 }}>Sync issue: {error}</span>
+              <button onClick={retry} className="rounded-full px-3 py-1 font-semibold cursor-pointer border-0" style={{ fontSize: 12, background: "var(--debit)", color: "#1a160c" }}>Retry</button>
+              <button onClick={dismissError} className="text-muted bg-transparent border-0 cursor-pointer"><X size={14} /></button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Spine active={active} />
         <MonthPill month={month} onPrev={prevMonth} onNext={nextMonth} />
         <div className="hidden lg:flex items-center gap-2 fixed top-7 z-40" style={{ right: "12.5rem" }}>
@@ -1096,7 +1219,7 @@ export default function App() {
         <MobileBar month={month} onPrev={prevMonth} onNext={nextMonth} onMenu={() => setMenuOpen(true)} onImport={() => setImportOpen(true)} />
         <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
 
-        <div ref={scrollRef} className="relative h-screen overflow-y-auto no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
+        <div ref={scrollRef} className="relative screen-h overflow-y-auto no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
           <CommandCenter totals={totals} month={month} isEmpty={txns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} />
           <IncomeExpense totals={totals} />
           <Cashflow txns={txns} idx={idx} />
@@ -1110,7 +1233,14 @@ export default function App() {
 
         <Toast msg={toast} />
         <AnimatePresence>{importOpen && <ImportModal onConfirm={handleBulkAdd} onClose={() => setImportOpen(false)} />}</AnimatePresence>
-        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onJump={(id) => goTo(id, false)} onImport={() => { setPaletteOpen(false); setImportOpen(true); }} onAdd={() => goTo("quickadd", false)} onClear={() => { if (window.confirm("Clear all transactions? This cannot be undone.")) { clearAll(); showToast("All data cleared"); } }} />
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onJump={(id) => goTo(id, false)} onImport={() => { setPaletteOpen(false); setImportOpen(true); }} onAdd={() => goTo("quickadd", false)} onClear={() => { setPaletteOpen(false); setClearOpen(true); }} />
+        <Dialog open={clearOpen} title="Clear all data?" onClose={() => setClearOpen(false)}>
+          <p className="text-2 mb-5" style={{ fontSize: 13.5, lineHeight: 1.55 }}>This permanently removes every transaction from this session. It can't be undone.</p>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setClearOpen(false)} className="rounded-full px-4 py-2 text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 13 }}>Cancel</button>
+            <button onClick={() => { clearAll(); setClearOpen(false); showToast("All data cleared"); }} className="rounded-full px-4 py-2 font-bold cursor-pointer border-0" style={{ fontSize: 13, background: "var(--debit)", color: "#1a160c" }}>Clear all</button>
+          </div>
+        </Dialog>
       </div>
     </ScrollContext.Provider>
   );
