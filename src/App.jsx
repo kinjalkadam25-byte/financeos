@@ -145,7 +145,7 @@ function buildSample() {
    Apps Script (run setToken() there).
    -------------------------------------------------------------------------- */
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9pALAjN_EDDkIp1-OZf_y-qLa5jnTtN53Dse1vUzzIim93eYZixBufxwlgNCQ7_4W/exec"; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
-const API_TOKEN = "fos_9x4k2p";       // any string; must match the token set in Apps Script
+const API_TOKEN = "fos_kinjal2026";       // any string; must match the token set in Apps Script
 const CONNECTED = /^https:\/\//.test(APPS_SCRIPT_URL);
 
 async function apiGet(action, extra = {}) {
