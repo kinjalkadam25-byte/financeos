@@ -540,12 +540,12 @@ function Toast({ msg }) {
 /* ============================================================ SECTIONS (9) */
 
 /* 1 — Command Center */
-function CommandCenter({ totals, month, isEmpty, onImport, onAdd }) {
+function CommandCenter({ totals, month, isEmpty, onImport, onAdd, account }) {
   const reduce = useReducedMotion();
   const neg = totals.net < 0;
   return (
     <SectionShell id="command">
-      <Eyebrow>{isEmpty ? "Welcome" : (neg ? "Net negative" : "Net positive")} · {month.long}</Eyebrow>
+      <Eyebrow>{isEmpty ? "Welcome" : (neg ? "Net negative" : "Net positive")} · {month.long}{account ? ` · ${account}` : ""}</Eyebrow>
       <Reveal delay={1}>
         <motion.div className={`hero-num mono mb-6 ${neg ? "text-debit" : "text-app"}`} animate={reduce ? {} : { y: [0, -5, 0] }} transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}>
           {neg ? "−" : ""}<AnimatedNumber value={Math.abs(totals.net)} prefix="₹" />
@@ -717,19 +717,16 @@ function Breakdown({ totals }) {
 function Transactions({ txns, globalIdx, onDelete }) {
   const [localIdx, setLocalIdx] = useState(globalIdx);
   const [type, setType] = useState("");
-  const [acct, setAcct] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => { setLocalIdx(globalIdx); }, [globalIdx]);
   const month = MONTHS[localIdx];
   const allRows = useMemo(() => txns.filter((t) => t.date.startsWith(month.key)).slice().sort((a, b) => b.date.localeCompare(a.date)), [txns, month.key]);
-  const accounts = useMemo(() => [...new Set(txns.map((t) => t.bank).filter(Boolean).filter((b) => b !== "Axis" && b !== ""))], [txns]);
   const rows = useMemo(() => {
     let r = allRows;
     if (type) r = r.filter((t) => (t.type || "debit") === type);
-    if (acct) r = r.filter((t) => t.bank === acct);
     if (q) r = r.filter((t) => (t.note || "").toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase()));
     return r;
-  }, [allRows, type, acct, q]);
+  }, [allRows, type, q]);
   const credit = allRows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
   const debit = allRows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
   return (
@@ -758,20 +755,7 @@ function Transactions({ txns, globalIdx, onDelete }) {
       </div>
       <Reveal delay={2}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
-            {accounts.length > 1 && (
-              <div className="flex items-center gap-1">
-                {[{ l: "All accounts", v: "" }, ...accounts.map((a) => ({ l: a, v: a }))].map((o) => (
-                  <button key={o.v} onClick={() => setAcct(o.v)}
-                    className="rounded-full px-3 py-1.5 font-semibold cursor-pointer border-0 transition-all mono"
-                    style={{ fontSize: 11.5, background: acct === o.v ? "var(--accent)" : "var(--surface2)", color: acct === o.v ? "#1a160c" : "var(--text2)", border: `1px solid ${acct === o.v ? "transparent" : "var(--line2)"}` }}>
-                    {o.l}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the ledger…" className="lux-input rounded-full pl-8 pr-4 py-2" style={{ fontSize: 13, width: 200 }} />
@@ -1194,7 +1178,10 @@ export default function App() {
 
   const idx = MONTHS.length - 1 + offset;
   const month = MONTHS[idx];
-  const totals = useMemo(() => totalsFor(txns, month), [txns, month]);
+  const [account, setAccount] = useState("");
+  const accounts = useMemo(() => [...new Set(txns.map((t) => t.bank).filter((b) => b && b !== "Axis"))], [txns]);
+  const viewTxns = useMemo(() => (account ? txns.filter((t) => t.bank === account) : txns), [txns, account]);
+  const totals = useMemo(() => totalsFor(viewTxns, month), [viewTxns, month]);
 
   const prevMonth = () => setOffset((o) => Math.max(-(MONTHS.length - 1), o - 1));
   const nextMonth = () => setOffset((o) => Math.min(0, o + 1));
@@ -1231,6 +1218,17 @@ export default function App() {
         </AnimatePresence>
         <Spine active={active} />
         <MonthPill month={month} onPrev={prevMonth} onNext={nextMonth} />
+        {accounts.length > 1 && (
+          <div className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-1 glass rounded-full p-1" style={{ top: "4.2rem" }}>
+            {[{ l: "All", v: "" }, ...accounts.map((a) => ({ l: a, v: a }))].map((o) => (
+              <button key={o.v} onClick={() => setAccount(o.v)}
+                className="rounded-full px-3 py-1 font-semibold cursor-pointer border-0 transition-all mono"
+                style={{ fontSize: 11, background: account === o.v ? "var(--accent)" : "transparent", color: account === o.v ? "#1a160c" : "var(--text2)" }}>
+                {o.l}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="hidden lg:flex items-center gap-2 fixed top-7 z-40" style={{ right: "12.5rem" }}>
           <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-1.5 glass rounded-full px-3 py-2 cursor-pointer border-0" title="Command palette"><span className="kbd">⌘K</span></button>
           <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 glass rounded-full px-4 py-2 font-semibold cursor-pointer border-0 text-app" style={{ fontSize: 12 }}><Upload size={13} style={{ color: "var(--accent)" }} /> Import</button>
@@ -1239,15 +1237,15 @@ export default function App() {
         <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
 
         <div ref={scrollRef} className="relative screen-h overflow-y-auto no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
-          <CommandCenter totals={totals} month={month} isEmpty={txns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} />
+          <CommandCenter totals={totals} month={month} isEmpty={viewTxns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} account={account} />
           <IncomeExpense totals={totals} />
-          <Cashflow txns={txns} idx={idx} />
+          <Cashflow txns={viewTxns} idx={idx} />
           <Breakdown totals={totals} />
-          <Transactions txns={txns} globalIdx={idx} onDelete={removeTransaction} />
+          <Transactions txns={viewTxns} globalIdx={idx} onDelete={removeTransaction} />
           <QuickAdd onAdd={handleAdd} month={month} />
-          <Insights txns={txns} idx={idx} />
-          <HealthScore txns={txns} idx={idx} />
-          <Goals txns={txns} idx={idx} />
+          <Insights txns={viewTxns} idx={idx} />
+          <HealthScore txns={viewTxns} idx={idx} />
+          <Goals txns={viewTxns} idx={idx} />
         </div>
 
         <Toast msg={toast} />
