@@ -717,16 +717,19 @@ function Breakdown({ totals }) {
 function Transactions({ txns, globalIdx, onDelete }) {
   const [localIdx, setLocalIdx] = useState(globalIdx);
   const [type, setType] = useState("");
+  const [acct, setAcct] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => { setLocalIdx(globalIdx); }, [globalIdx]);
   const month = MONTHS[localIdx];
   const allRows = useMemo(() => txns.filter((t) => t.date.startsWith(month.key)).slice().sort((a, b) => b.date.localeCompare(a.date)), [txns, month.key]);
+  const accounts = useMemo(() => [...new Set(txns.map((t) => t.bank).filter(Boolean).filter((b) => b !== "Axis" && b !== ""))], [txns]);
   const rows = useMemo(() => {
     let r = allRows;
     if (type) r = r.filter((t) => (t.type || "debit") === type);
+    if (acct) r = r.filter((t) => t.bank === acct);
     if (q) r = r.filter((t) => (t.note || "").toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase()));
     return r;
-  }, [allRows, type, q]);
+  }, [allRows, type, acct, q]);
   const credit = allRows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
   const debit = allRows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
   return (
@@ -755,7 +758,20 @@ function Transactions({ txns, globalIdx, onDelete }) {
       </div>
       <Reveal delay={2}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
+            {accounts.length > 1 && (
+              <div className="flex items-center gap-1">
+                {[{ l: "All accounts", v: "" }, ...accounts.map((a) => ({ l: a, v: a }))].map((o) => (
+                  <button key={o.v} onClick={() => setAcct(o.v)}
+                    className="rounded-full px-3 py-1.5 font-semibold cursor-pointer border-0 transition-all mono"
+                    style={{ fontSize: 11.5, background: acct === o.v ? "var(--accent)" : "var(--surface2)", color: acct === o.v ? "#1a160c" : "var(--text2)", border: `1px solid ${acct === o.v ? "transparent" : "var(--line2)"}` }}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the ledger…" className="lux-input rounded-full pl-8 pr-4 py-2" style={{ fontSize: 13, width: 200 }} />
@@ -780,7 +796,10 @@ function Transactions({ txns, globalIdx, onDelete }) {
                     </div>
                     <div className="py-4 min-w-0">
                       <div className="truncate text-app" style={{ fontSize: 14.5 }}>{t.note || "—"}</div>
-                      <div className="text-muted mt-1" style={{ fontSize: 12 }}>{t.cat}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-muted" style={{ fontSize: 12 }}>{t.cat}</span>
+                        {t.bank && t.bank !== "Axis" && t.bank !== "" && <span className="mono rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--surface2)", color: "var(--text-faint)", border: "1px solid var(--line2)" }}>{t.bank}</span>}
+                      </div>
                     </div>
                     <div className="py-4 flex items-center gap-4 justify-end pl-4">
                       <span className="mono font-semibold whitespace-nowrap" style={{ fontSize: 15, color: isC ? "var(--credit)" : "var(--debit)" }}>{isC ? "+" : "−"}₹{fmt(t.amt)}</span>
