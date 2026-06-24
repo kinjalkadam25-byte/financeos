@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>FinanceOS</title>
+    <meta name="description" content="Your personal financial operating system." />
+    <meta name="theme-color" content="#CBB079" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FinanceOS" />
+    <link rel="manifest" href="/financeos/manifest.json" />
+    <link rel="apple-touch-icon" href="/financeos/icons/icon-192.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #0E1311; }
+    </style>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/financeos/sw.js')
+            .then(() => console.log('FinanceOS SW registered'))
+            .catch((e) => console.warn('SW registration failed:', e));
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
