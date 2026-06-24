@@ -1221,9 +1221,7 @@ function LoadingScreen() {
   );
 }
 
-export default function App() {
-  const { user, signIn, signOut, ready } = useAuth();
-  if (!user) return <LoginScreen onSignIn={signIn} ready={ready} />;
+function Dashboard({ user, signOut }) {
   const { txns, loading, error, retry, dismissError, addTransaction, removeTransaction, bulkAdd, clearAll } = useFinanceData();
   const [offset, setOffset] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1322,4 +1320,10 @@ export default function App() {
       </div>
     </ScrollContext.Provider>
   );
+}
+
+export default function App() {
+  const { user, signIn, signOut, ready } = useAuth();
+  if (!user) return <LoginScreen onSignIn={signIn} ready={ready} />;
+  return <Dashboard user={user} signOut={signOut} />;
 }
