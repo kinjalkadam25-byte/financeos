@@ -135,17 +135,16 @@ function buildSample() {
 }
 
 /* --------------------------------------------------------------- data hook */
-/* ----------------------------------------------------------------- backend
-   PASTE your Apps Script Web App URL and a token below to connect the app to
-   your Google Sheet. Leave APPS_SCRIPT_URL blank to run in local/in-memory
-   mode (data clears on refresh — useful as a demo).
-
-   The token raises the bar against casual access but is visible in the page
-   source, so it is NOT a strong secret. Set the same value here and in your
-   Apps Script (run setToken() there).
+/* ----------------------------------------------------------------- auth
+   Google OAuth — only your Google account can access the dashboard.
+   The CLIENT_ID is safe to be public (it's not a secret).
    -------------------------------------------------------------------------- */
+const CLIENT_ID = "833202731310-jsjq6r9ie622fkou8ciprhlm822cl3v4.apps.googleusercontent.com";
+const ALLOWED_EMAIL = "kinjalkadam25@gmail.com"; // only this account can log in
+
+/* ----------------------------------------------------------------- backend */
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9pALAjN_EDDkIp1-OZf_y-qLa5jnTtN53Dse1vUzzIim93eYZixBufxwlgNCQ7_4W/exec"; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
-const API_TOKEN = "fos_kinjal2026";       // any string; must match the token set in Apps Script
+const API_TOKEN = "fos_kinjal2026";       // must match the token set in Apps Script via setToken()
 const CONNECTED = /^https:\/\//.test(APPS_SCRIPT_URL);
 
 async function apiGet(action, extra = {}) {
@@ -165,6 +164,64 @@ async function apiPost(action, payload = {}) {
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data;
+}
+
+/* ----------------------------------------------------------------- auth hook */
+function useAuth() {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+  const clientRef = useRef(null);
+  useEffect(() => {
+    if (document.getElementById("gsi-script")) { setReady(true); return; }
+    const s = document.createElement("script");
+    s.id = "gsi-script"; s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = () => {
+      clientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: "openid email profile",
+        callback: (res) => {
+          if (res.error) return;
+          fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${res.access_token}` } })
+            .then((r) => r.json())
+            .then((info) => {
+              if (ALLOWED_EMAIL && info.email !== ALLOWED_EMAIL) { setUser(null); alert(`Access restricted. Sign in as ${ALLOWED_EMAIL}.`); return; }
+              setUser({ email: info.email, name: info.name, picture: info.picture, accessToken: res.access_token });
+            })
+            .catch(() => setUser(null));
+        },
+      });
+      setReady(true);
+    };
+    document.head.appendChild(s);
+  }, []);
+  const signIn  = useCallback(() => { clientRef.current?.requestAccessToken(); }, []);
+  const signOut = useCallback(() => { if (user?.accessToken) window.google?.accounts.oauth2.revoke(user.accessToken, () => {}); setUser(null); }, [user]);
+  return { user, signIn, signOut, ready };
+}
+
+function LoginScreen({ onSignIn, ready }) {
+  return (
+    <div className="fos font-ui bg-void text-app screen-h flex flex-col items-center justify-center gap-8 px-6">
+      <ThemeStyles />
+      <div className="fixed inset-0 ambient pointer-events-none" />
+      <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-col items-center gap-6 text-center" style={{ maxWidth: 360 }}>
+        <div className="accent-grad rounded-2xl flex items-center justify-center" style={{ width: 56, height: 56 }}>
+          <Wallet size={26} style={{ color: "#1a160c" }} />
+        </div>
+        <div>
+          <h1 className="font-display text-app mb-2" style={{ fontSize: 32, lineHeight: 1.1 }}>FinanceOS</h1>
+          <p className="text-muted" style={{ fontSize: 15, lineHeight: 1.6 }}>Your personal financial operating system.<br />Sign in to access your dashboard.</p>
+        </div>
+        <motion.button onClick={onSignIn} disabled={!ready} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+          className="flex items-center gap-3 glass rounded-2xl px-6 py-4 cursor-pointer border border-line2 w-full justify-center"
+          style={{ fontSize: 15, fontWeight: 600, opacity: ready ? 1 : 0.5 }}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Sign in with Google
+        </motion.button>
+        <p className="text-faint" style={{ fontSize: 12 }}>Only {ALLOWED_EMAIL} can access this dashboard.</p>
+      </motion.div>
+    </div>
+  );
 }
 
 /* --------------------------------------------------------------- data hook
@@ -216,15 +273,16 @@ function useFinanceData() {
 /* ---------------------------------------------------------------- selectors */
 const fmt = (n) => Math.round(n).toLocaleString("en-IN");
 const inMonth = (t, mo) => t.date.startsWith(mo.key);
+const isCredit = (t) => String(t.type || "").trim().toLowerCase() === "credit";
 function totalsFor(txns, mo) {
   const rows = txns.filter((t) => inMonth(t, mo));
-  const credit = rows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
-  const debit = rows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
+  const credit = rows.filter((t) => isCredit(t)).reduce((s, t) => s + t.amt, 0);
+  const debit = rows.filter((t) => !isCredit(t)).reduce((s, t) => s + t.amt, 0);
   return { rows, credit, debit, net: credit - debit, count: rows.length };
 }
 function groupBreakdown(rows) {
   const map = {};
-  rows.filter((t) => t.type !== "credit").forEach((t) => {
+  rows.filter((t) => !isCredit(t)).forEach((t) => {
     const g = GROUP_OF(t.cat);
     map[g] = map[g] || { total: 0, subs: {} };
     map[g].total += t.amt;
@@ -244,15 +302,15 @@ function computeInsights(txns, idx) {
   const priors = series.slice(Math.max(0, idx - 3), idx).filter((s) => s.count);
   if (priors.length) {
     const catAvg = {};
-    priors.forEach((p) => { const m = {}; p.rows.filter((t) => t.type !== "credit").forEach((t) => (m[t.cat] = (m[t.cat] || 0) + t.amt)); Object.entries(m).forEach(([c, v]) => { (catAvg[c] = catAvg[c] || []).push(v); }); });
-    const curCat = {}; cur.rows.filter((t) => t.type !== "credit").forEach((t) => (curCat[t.cat] = (curCat[t.cat] || 0) + t.amt));
+    priors.forEach((p) => { const m = {}; p.rows.filter((t) => !isCredit(t)).forEach((t) => (m[t.cat] = (m[t.cat] || 0) + t.amt)); Object.entries(m).forEach(([c, v]) => { (catAvg[c] = catAvg[c] || []).push(v); }); });
+    const curCat = {}; cur.rows.filter((t) => !isCredit(t)).forEach((t) => (curCat[t.cat] = (curCat[t.cat] || 0) + t.amt));
     let best = null;
     Object.entries(curCat).forEach(([c, v]) => { const arr = catAvg[c]; if (arr && arr.length) { const avg = arr.reduce((s, x) => s + x, 0) / arr.length; if (avg > 0) { const pct = Math.round(((v - avg) / avg) * 100); if (pct >= 20 && (!best || pct > best.pct)) best = { c, pct }; } } });
     if (best) out.push({ fig: `+${best.pct}%`, text: <><b>{best.c}</b> is running {best.pct}% above your recent average.</> });
   }
   const prev = series[idx - 1];
   if (prev && prev.count) { const d = cur.net - prev.net; out.push({ fig: `${d >= 0 ? "+" : "−"}₹${fmt(Math.abs(d))}`, text: d >= 0 ? <>You're keeping <b>more</b> than last month.</> : <>Your net position slipped versus last month.</> }); }
-  const invest = cur.rows.filter((t) => t.type !== "credit" && CAT_GROUPS["Investments / Savings"].includes(t.cat)).reduce((s, t) => s + t.amt, 0);
+  const invest = cur.rows.filter((t) => !isCredit(t) && CAT_GROUPS["Investments / Savings"].includes(t.cat)).reduce((s, t) => s + t.amt, 0);
   if (invest > 0 && out.length < 3) out.push({ fig: `₹${fmt(invest)}`, text: <>You put <b>₹{fmt(invest)}</b> to work in investments.</> });
   return out.slice(0, 3);
 }
@@ -262,7 +320,7 @@ function computeHealth(txns, idx) {
   const cur = series[idx]; const factors = []; let wSum = 0, sSum = 0;
   if (cur.credit > 0) { const sr = Math.max(0, Math.min(1, cur.net / cur.credit)); factors.push({ name: "Savings rate", weight: 40, pct: sr, val: `${Math.round(sr * 100)}%`, note: "Net saved as a share of income this month." }); wSum += 40; sSum += sr * 40; }
   if (withData.length >= 2) { const ds = withData.map((s) => s.debit); const mean = ds.reduce((a, b) => a + b, 0) / ds.length; const variance = ds.reduce((a, b) => a + (b - mean) ** 2, 0) / ds.length; const cv = mean > 0 ? Math.sqrt(variance) / mean : 0; const stab = Math.max(0, Math.min(1, 1 - cv)); factors.push({ name: "Spending stability", weight: 30, pct: stab, val: `${Math.round(stab * 100)}%`, note: "How consistent your monthly spending is across recent months." }); wSum += 30; sSum += stab * 30; }
-  if (cur.debit > 0) { const fixed = cur.rows.filter((t) => t.type !== "credit" && RHYTHM_CATS.includes(t.cat)).reduce((s, t) => s + t.amt, 0); const flex = 1 - Math.max(0, Math.min(1, fixed / cur.debit)); factors.push({ name: "Spending flexibility", weight: 30, pct: flex, val: `${Math.round(flex * 100)}%`, note: "Share of spending not locked in recurring commitments." }); wSum += 30; sSum += flex * 30; }
+  if (cur.debit > 0) { const fixed = cur.rows.filter((t) => !isCredit(t) && RHYTHM_CATS.includes(t.cat)).reduce((s, t) => s + t.amt, 0); const flex = 1 - Math.max(0, Math.min(1, fixed / cur.debit)); factors.push({ name: "Spending flexibility", weight: 30, pct: flex, val: `${Math.round(flex * 100)}%`, note: "Share of spending not locked in recurring commitments." }); wSum += 30; sSum += flex * 30; }
   return { score: wSum > 0 ? Math.round((sSum / wSum) * 100) : 0, factors, incomeMissing: cur.credit <= 0 };
 }
 function avgSurplus(txns, idx) {
@@ -590,8 +648,8 @@ function CommandCenter({ totals, month, isEmpty, onImport, onAdd, account }) {
 function IncomeExpense({ totals }) {
   const tot = totals.credit + totals.debit || 1;
   const cells = [
-    { l: "Received", v: totals.credit, n: totals.rows.filter((t) => t.type === "credit").length, cls: "text-credit", Icon: TrendingUp, sub: "credits" },
-    { l: "Spent", v: totals.debit, n: totals.rows.filter((t) => t.type !== "credit").length, cls: "text-debit", Icon: TrendingDown, sub: "debits" },
+    { l: "Received", v: totals.credit, n: totals.rows.filter((t) => isCredit(t)).length, cls: "text-credit", Icon: TrendingUp, sub: "credits" },
+    { l: "Spent", v: totals.debit, n: totals.rows.filter((t) => !isCredit(t)).length, cls: "text-debit", Icon: TrendingDown, sub: "debits" },
   ];
   return (
     <SectionShell id="income">
@@ -727,8 +785,8 @@ function Transactions({ txns, globalIdx, onDelete }) {
     if (q) r = r.filter((t) => (t.note || "").toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase()));
     return r;
   }, [allRows, type, q]);
-  const credit = allRows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
-  const debit = allRows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
+  const credit = allRows.filter((t) => isCredit(t)).reduce((s, t) => s + t.amt, 0);
+  const debit = allRows.filter((t) => !isCredit(t)).reduce((s, t) => s + t.amt, 0);
   return (
     <SectionShell id="transactions">
       <div className="flex flex-wrap items-end justify-between gap-5 mb-7">
@@ -769,7 +827,7 @@ function Transactions({ txns, globalIdx, onDelete }) {
           <div className="max-h-[54vh] overflow-y-auto no-bar -mx-3">
             <AnimatePresence initial={false}>
               {rows.map((t) => {
-                const isC = t.type === "credit";
+                const isC = isCredit(t);
                 const d = new Date(t.date + "T00:00:00");
                 return (
                   <motion.div key={t.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
@@ -1164,6 +1222,8 @@ function LoadingScreen() {
 }
 
 export default function App() {
+  const { user, signIn, signOut, ready } = useAuth();
+  if (!user) return <LoginScreen onSignIn={signIn} ready={ready} />;
   const { txns, loading, error, retry, dismissError, addTransaction, removeTransaction, bulkAdd, clearAll } = useFinanceData();
   const [offset, setOffset] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1186,7 +1246,7 @@ export default function App() {
   const prevMonth = () => setOffset((o) => Math.max(-(MONTHS.length - 1), o - 1));
   const nextMonth = () => setOffset((o) => Math.min(0, o + 1));
   const showToast = (msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(""), 2400); };
-  const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(t.type === "credit" ? "Credit recorded" : "Debit recorded"); };
+  const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(isCredit(t) ? "Credit recorded" : "Debit recorded"); };
   const handleBulkAdd = (rows) => { bulkAdd(rows.map((r) => ({ note: r.note, cat: r.cat, type: r.type, amt: r.amt, date: r.date, bank: r.bank }))); showToast(`${rows.length} transaction${rows.length > 1 ? "s" : ""} imported`); };
 
   useEffect(() => {
@@ -1232,6 +1292,7 @@ export default function App() {
         <div className="hidden lg:flex items-center gap-2 fixed top-7 z-40" style={{ right: "12.5rem" }}>
           <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-1.5 glass rounded-full px-3 py-2 cursor-pointer border-0" title="Command palette"><span className="kbd">⌘K</span></button>
           <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 glass rounded-full px-4 py-2 font-semibold cursor-pointer border-0 text-app" style={{ fontSize: 12 }}><Upload size={13} style={{ color: "var(--accent)" }} /> Import</button>
+          {user?.picture && <img src={user.picture} alt={user.name} onClick={signOut} title={`Sign out (${user.email})`} className="rounded-full cursor-pointer" style={{ width: 28, height: 28, border: "1.5px solid var(--line2)" }} />}
         </div>
         <MobileBar month={month} onPrev={prevMonth} onNext={nextMonth} onMenu={() => setMenuOpen(true)} onImport={() => setImportOpen(true)} />
         <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
