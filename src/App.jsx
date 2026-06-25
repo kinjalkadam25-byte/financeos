@@ -342,6 +342,68 @@ function useCountUp(target, inView) {
   return reduce ? target : display;
 }
 
+/* usePullToRefresh — pull down at the top of the scroll container to re-fetch.
+   Only calls onRefresh() (the data reload) — never touches auth. */
+function usePullToRefresh(scrollRef, onRefresh) {
+  const [pull, setPull] = useState(0);      // current pull distance in px
+  const [refreshing, setRefreshing] = useState(false);
+  const startY = useRef(0);
+  const pulling = useRef(false);
+  const THRESHOLD = 70;                       // px to trigger
+  const MAX = 110;                            // px clamp
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onStart = (e) => {
+      // Only begin a pull when already scrolled to the very top
+      if (el.scrollTop <= 0 && !refreshing) {
+        startY.current = e.touches ? e.touches[0].clientY : e.clientY;
+        pulling.current = true;
+      }
+    };
+    const onMove = (e) => {
+      if (!pulling.current || refreshing) return;
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      const dy = y - startY.current;
+      if (dy > 0 && el.scrollTop <= 0) {
+        // resistance curve so it feels rubbery
+        const dist = Math.min(MAX, dy * 0.5);
+        setPull(dist);
+        if (dist > 4 && e.cancelable) e.preventDefault(); // stop native overscroll
+      } else {
+        pulling.current = false;
+        setPull(0);
+      }
+    };
+    const onEnd = async () => {
+      if (!pulling.current) return;
+      pulling.current = false;
+      if (pull >= THRESHOLD && !refreshing) {
+        setRefreshing(true);
+        setPull(THRESHOLD);
+        try { await onRefresh(); } finally {
+          setTimeout(() => { setRefreshing(false); setPull(0); }, 500);
+        }
+      } else {
+        setPull(0);
+      }
+    };
+
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd);
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [scrollRef, onRefresh, pull, refreshing]);
+
+  return { pull, refreshing, threshold: THRESHOLD };
+}
+
 /* ------------------------------------------------------------- motion presets */
 const vStagger = { hidden: {}, show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } } };
 const vItem = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.75, ease: EASE } } };
@@ -1365,6 +1427,8 @@ function Dashboard({ user, signOut }) {
   const toastTimer = useRef(0);
   const active = useScrollSpy(SECTIONS.map((s) => s.id));
   const { scrollYProgress } = useScroll({ container: scrollRef });
+  const { pull, refreshing, threshold } = usePullToRefresh(scrollRef, retry);
+  const wasRefreshing = useRef(false);
 
   const idx = MONTHS.length - 1 + offset;
   const month = MONTHS[idx];
@@ -1376,6 +1440,10 @@ function Dashboard({ user, signOut }) {
   const prevMonth = () => setOffset((o) => Math.max(-(MONTHS.length - 1), o - 1));
   const nextMonth = () => setOffset((o) => Math.min(0, o + 1));
   const showToast = (msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(""), 2400); };
+  useEffect(() => {
+    if (wasRefreshing.current && !refreshing) showToast("Transactions updated");
+    wasRefreshing.current = refreshing;
+  }, [refreshing]);
   const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(isCredit(t) ? "Credit recorded" : "Debit recorded"); };
   const handleBulkAdd = (rows) => { bulkAdd(rows.map((r) => ({ note: r.note, cat: r.cat, type: r.type, amt: r.amt, date: r.date, bank: r.bank }))); showToast(`${rows.length} transaction${rows.length > 1 ? "s" : ""} imported`); };
 
@@ -1429,7 +1497,25 @@ function Dashboard({ user, signOut }) {
         <MobileBar month={month} onPrev={prevMonth} onNext={nextMonth} onMenu={() => setMenuOpen(true)} onImport={() => setImportOpen(true)} />
         <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
 
-        <div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
+        {/* Pull-to-refresh indicator */}
+        <motion.div
+          className="lg:hidden fixed left-1/2 z-30 flex items-center justify-center pointer-events-none"
+          style={{ x: "-50%", top: "calc(env(safe-area-inset-top) + 0.5rem)" }}
+          animate={{ opacity: pull > 4 || refreshing ? 1 : 0 }}
+          transition={{ duration: 0.15 }}>
+          <motion.div className="glass rounded-full flex items-center justify-center"
+            style={{ width: 36, height: 36 }}
+            animate={{ rotate: refreshing ? 360 : pull * 2.2, scale: pull > 4 || refreshing ? 1 : 0.6 }}
+            transition={refreshing ? { rotate: { duration: 0.9, repeat: Infinity, ease: "linear" } } : { duration: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke={pull >= threshold || refreshing ? "var(--accent)" : "var(--muted)"} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          </motion.div>
+        </motion.div>
+
+        <motion.div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}
+          animate={{ y: pull }} transition={{ type: "spring", stiffness: 500, damping: 40 }}>
           <CommandCenter totals={totals} month={month} isEmpty={viewTxns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} account={account} />
           <IncomeExpense totals={totals} />
           <Cashflow txns={viewTxns} idx={idx} />
@@ -1439,7 +1525,7 @@ function Dashboard({ user, signOut }) {
           <Insights txns={viewTxns} idx={idx} />
           <HealthScore txns={viewTxns} idx={idx} />
           <Goals txns={viewTxns} idx={idx} />
-        </div>
+        </motion.div>
 
         <Toast msg={toast} />
         <AnimatePresence>{importOpen && <ImportModal onConfirm={handleBulkAdd} onClose={() => setImportOpen(false)} />}</AnimatePresence>
