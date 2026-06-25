@@ -584,19 +584,17 @@ function GlowField({ scrollYProgress }) {
   const y1 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -300]);
   const y2 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 260]);
   const y3 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -180]);
-  const s1 = useTransform(scrollYProgress, [0, 0.5, 1], [1, 1.25, 0.9]);
-  const s2 = useTransform(scrollYProgress, [0, 0.5, 1], [0.9, 1.15, 1.3]);
-  const op1 = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [0.7, 1, 0.8, 0.5]);
+  // scale + blur on scroll forces re-rasterization every frame — only use y (translate)
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
-      {/* Primary accent orb — top right, moves up on scroll */}
-      <motion.div style={{ y: y1, scale: s1, opacity: op1, top: "-14%", right: "-10%", width: 660, height: 660, background: "radial-gradient(circle, rgba(203,176,121,.18), transparent 62%)", filter: "blur(22px)" }} className="absolute rounded-full" />
-      {/* Green orb — mid left, moves down */}
-      <motion.div style={{ y: y2, scale: s2, top: "28%", left: "-18%", width: 600, height: 600, background: "radial-gradient(circle, rgba(134,183,145,.13), transparent 60%)", filter: "blur(24px)" }} className="absolute rounded-full" />
-      {/* Warm debit orb — bottom centre */}
-      <motion.div style={{ y: y3, bottom: "-18%", left: "38%", width: 720, height: 720, background: "radial-gradient(circle, rgba(210,145,110,.10), transparent 62%)", filter: "blur(28px)" }} className="absolute rounded-full" />
-      {/* Subtle second accent — top left counter-scroll */}
-      <motion.div style={{ y: y2, top: "-8%", left: "30%", width: 380, height: 380, background: "radial-gradient(circle, rgba(203,176,121,.07), transparent 68%)", filter: "blur(18px)" }} className="absolute rounded-full" />
+      {/* Primary accent orb */}
+      <motion.div style={{ y: y1, willChange: "transform", top: "-14%", right: "-10%", width: 660, height: 660, background: "radial-gradient(circle, rgba(203,176,121,.18), transparent 62%)", filter: "blur(22px)" }} className="absolute rounded-full" />
+      {/* Green orb */}
+      <motion.div style={{ y: y2, willChange: "transform", top: "28%", left: "-18%", width: 600, height: 600, background: "radial-gradient(circle, rgba(134,183,145,.13), transparent 60%)", filter: "blur(24px)" }} className="absolute rounded-full" />
+      {/* Warm debit orb */}
+      <motion.div style={{ y: y3, willChange: "transform", bottom: "-18%", left: "38%", width: 720, height: 720, background: "radial-gradient(circle, rgba(210,145,110,.10), transparent 62%)", filter: "blur(28px)" }} className="absolute rounded-full" />
+      {/* Subtle second accent */}
+      <motion.div style={{ y: y2, willChange: "transform", top: "-8%", left: "30%", width: 380, height: 380, background: "radial-gradient(circle, rgba(203,176,121,.07), transparent 68%)", filter: "blur(18px)" }} className="absolute rounded-full" />
       {!reduce && (
         <>
           {/* Floating particles */}
