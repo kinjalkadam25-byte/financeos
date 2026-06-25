@@ -135,17 +135,16 @@ function buildSample() {
 }
 
 /* --------------------------------------------------------------- data hook */
-/* ----------------------------------------------------------------- backend
-   PASTE your Apps Script Web App URL and a token below to connect the app to
-   your Google Sheet. Leave APPS_SCRIPT_URL blank to run in local/in-memory
-   mode (data clears on refresh — useful as a demo).
-
-   The token raises the bar against casual access but is visible in the page
-   source, so it is NOT a strong secret. Set the same value here and in your
-   Apps Script (run setToken() there).
+/* ----------------------------------------------------------------- auth
+   Google OAuth — only your Google account can access the dashboard.
+   The CLIENT_ID is safe to be public (it's not a secret).
    -------------------------------------------------------------------------- */
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9pALAjN_EDDkIp1-OZf_y-qLa5jnTtN53Dse1vUzzIim93eYZixBufxwlgNCQ7_4W/exec"; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
-const API_TOKEN = "fos_kinjal2026";       // any string; must match the token set in Apps Script
+const CLIENT_ID = "833202731310-jsjq6r9ie622fkou8ciprhlm822cl3v4.apps.googleusercontent.com";
+const ALLOWED_EMAILS = ["kinjalkadam25@gmail.com", "jitendra04.kadam@gmail.com"];
+
+/* ----------------------------------------------------------------- backend */
+const APPS_SCRIPT_URL = ""; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
+const API_TOKEN = "";       // must match the token set in Apps Script via setToken()
 const CONNECTED = /^https:\/\//.test(APPS_SCRIPT_URL);
 
 async function apiGet(action, extra = {}) {
@@ -165,6 +164,64 @@ async function apiPost(action, payload = {}) {
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data;
+}
+
+/* ----------------------------------------------------------------- auth hook */
+function useAuth() {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+  const clientRef = useRef(null);
+  useEffect(() => {
+    if (document.getElementById("gsi-script")) { setReady(true); return; }
+    const s = document.createElement("script");
+    s.id = "gsi-script"; s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = () => {
+      clientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: "openid email profile",
+        callback: (res) => {
+          if (res.error) return;
+          fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${res.access_token}` } })
+            .then((r) => r.json())
+            .then((info) => {
+              if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(info.email)) { setUser(null); alert(`Access restricted. Sign in with an authorized account.`); return; }
+              setUser({ email: info.email, name: info.name, picture: info.picture, accessToken: res.access_token });
+            })
+            .catch(() => setUser(null));
+        },
+      });
+      setReady(true);
+    };
+    document.head.appendChild(s);
+  }, []);
+  const signIn  = useCallback(() => { clientRef.current?.requestAccessToken(); }, []);
+  const signOut = useCallback(() => { if (user?.accessToken) window.google?.accounts.oauth2.revoke(user.accessToken, () => {}); setUser(null); }, [user]);
+  return { user, signIn, signOut, ready };
+}
+
+function LoginScreen({ onSignIn, ready }) {
+  return (
+    <div className="fos font-ui bg-void text-app screen-h flex flex-col items-center justify-center gap-8 px-6">
+      <ThemeStyles />
+      <div className="fixed inset-0 ambient pointer-events-none" />
+      <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-col items-center gap-6 text-center" style={{ maxWidth: 360 }}>
+        <div className="accent-grad rounded-2xl flex items-center justify-center" style={{ width: 56, height: 56 }}>
+          <Wallet size={26} style={{ color: "#1a160c" }} />
+        </div>
+        <div>
+          <h1 className="font-display text-app mb-2" style={{ fontSize: 32, lineHeight: 1.1 }}>FinanceOS</h1>
+          <p className="text-muted" style={{ fontSize: 15, lineHeight: 1.6 }}>Your personal financial operating system.<br />Sign in to access your dashboard.</p>
+        </div>
+        <motion.button onClick={onSignIn} disabled={!ready} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+          className="flex items-center gap-3 glass rounded-2xl px-6 py-4 cursor-pointer border border-line2 w-full justify-center"
+          style={{ fontSize: 15, fontWeight: 600, opacity: ready ? 1 : 0.5 }}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          Sign in with Google
+        </motion.button>
+        <p className="text-faint" style={{ fontSize: 12 }}>Access restricted to authorized accounts.</p>
+      </motion.div>
+    </div>
+  );
 }
 
 /* --------------------------------------------------------------- data hook
@@ -216,15 +273,16 @@ function useFinanceData() {
 /* ---------------------------------------------------------------- selectors */
 const fmt = (n) => Math.round(n).toLocaleString("en-IN");
 const inMonth = (t, mo) => t.date.startsWith(mo.key);
+const isCredit = (t) => String(t.type || "").trim().toLowerCase() === "credit";
 function totalsFor(txns, mo) {
   const rows = txns.filter((t) => inMonth(t, mo));
-  const credit = rows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
-  const debit = rows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
+  const credit = rows.filter((t) => isCredit(t)).reduce((s, t) => s + t.amt, 0);
+  const debit = rows.filter((t) => !isCredit(t)).reduce((s, t) => s + t.amt, 0);
   return { rows, credit, debit, net: credit - debit, count: rows.length };
 }
 function groupBreakdown(rows) {
   const map = {};
-  rows.filter((t) => t.type !== "credit").forEach((t) => {
+  rows.filter((t) => !isCredit(t)).forEach((t) => {
     const g = GROUP_OF(t.cat);
     map[g] = map[g] || { total: 0, subs: {} };
     map[g].total += t.amt;
@@ -244,15 +302,15 @@ function computeInsights(txns, idx) {
   const priors = series.slice(Math.max(0, idx - 3), idx).filter((s) => s.count);
   if (priors.length) {
     const catAvg = {};
-    priors.forEach((p) => { const m = {}; p.rows.filter((t) => t.type !== "credit").forEach((t) => (m[t.cat] = (m[t.cat] || 0) + t.amt)); Object.entries(m).forEach(([c, v]) => { (catAvg[c] = catAvg[c] || []).push(v); }); });
-    const curCat = {}; cur.rows.filter((t) => t.type !== "credit").forEach((t) => (curCat[t.cat] = (curCat[t.cat] || 0) + t.amt));
+    priors.forEach((p) => { const m = {}; p.rows.filter((t) => !isCredit(t)).forEach((t) => (m[t.cat] = (m[t.cat] || 0) + t.amt)); Object.entries(m).forEach(([c, v]) => { (catAvg[c] = catAvg[c] || []).push(v); }); });
+    const curCat = {}; cur.rows.filter((t) => !isCredit(t)).forEach((t) => (curCat[t.cat] = (curCat[t.cat] || 0) + t.amt));
     let best = null;
     Object.entries(curCat).forEach(([c, v]) => { const arr = catAvg[c]; if (arr && arr.length) { const avg = arr.reduce((s, x) => s + x, 0) / arr.length; if (avg > 0) { const pct = Math.round(((v - avg) / avg) * 100); if (pct >= 20 && (!best || pct > best.pct)) best = { c, pct }; } } });
     if (best) out.push({ fig: `+${best.pct}%`, text: <><b>{best.c}</b> is running {best.pct}% above your recent average.</> });
   }
   const prev = series[idx - 1];
   if (prev && prev.count) { const d = cur.net - prev.net; out.push({ fig: `${d >= 0 ? "+" : "−"}₹${fmt(Math.abs(d))}`, text: d >= 0 ? <>You're keeping <b>more</b> than last month.</> : <>Your net position slipped versus last month.</> }); }
-  const invest = cur.rows.filter((t) => t.type !== "credit" && CAT_GROUPS["Investments / Savings"].includes(t.cat)).reduce((s, t) => s + t.amt, 0);
+  const invest = cur.rows.filter((t) => !isCredit(t) && CAT_GROUPS["Investments / Savings"].includes(t.cat)).reduce((s, t) => s + t.amt, 0);
   if (invest > 0 && out.length < 3) out.push({ fig: `₹${fmt(invest)}`, text: <>You put <b>₹{fmt(invest)}</b> to work in investments.</> });
   return out.slice(0, 3);
 }
@@ -262,7 +320,7 @@ function computeHealth(txns, idx) {
   const cur = series[idx]; const factors = []; let wSum = 0, sSum = 0;
   if (cur.credit > 0) { const sr = Math.max(0, Math.min(1, cur.net / cur.credit)); factors.push({ name: "Savings rate", weight: 40, pct: sr, val: `${Math.round(sr * 100)}%`, note: "Net saved as a share of income this month." }); wSum += 40; sSum += sr * 40; }
   if (withData.length >= 2) { const ds = withData.map((s) => s.debit); const mean = ds.reduce((a, b) => a + b, 0) / ds.length; const variance = ds.reduce((a, b) => a + (b - mean) ** 2, 0) / ds.length; const cv = mean > 0 ? Math.sqrt(variance) / mean : 0; const stab = Math.max(0, Math.min(1, 1 - cv)); factors.push({ name: "Spending stability", weight: 30, pct: stab, val: `${Math.round(stab * 100)}%`, note: "How consistent your monthly spending is across recent months." }); wSum += 30; sSum += stab * 30; }
-  if (cur.debit > 0) { const fixed = cur.rows.filter((t) => t.type !== "credit" && RHYTHM_CATS.includes(t.cat)).reduce((s, t) => s + t.amt, 0); const flex = 1 - Math.max(0, Math.min(1, fixed / cur.debit)); factors.push({ name: "Spending flexibility", weight: 30, pct: flex, val: `${Math.round(flex * 100)}%`, note: "Share of spending not locked in recurring commitments." }); wSum += 30; sSum += flex * 30; }
+  if (cur.debit > 0) { const fixed = cur.rows.filter((t) => !isCredit(t) && RHYTHM_CATS.includes(t.cat)).reduce((s, t) => s + t.amt, 0); const flex = 1 - Math.max(0, Math.min(1, fixed / cur.debit)); factors.push({ name: "Spending flexibility", weight: 30, pct: flex, val: `${Math.round(flex * 100)}%`, note: "Share of spending not locked in recurring commitments." }); wSum += 30; sSum += flex * 30; }
   return { score: wSum > 0 ? Math.round((sSum / wSum) * 100) : 0, factors, incomeMissing: cur.credit <= 0 };
 }
 function avgSurplus(txns, idx) {
@@ -313,8 +371,12 @@ function ThemeStyles() {
   .eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:600}
   .h-display{font-size:clamp(2.1rem,1.3rem + 3.4vw,3.5rem);line-height:1.05;letter-spacing:-.015em;font-weight:300}
   .lead{font-size:clamp(1rem,.94rem + .4vw,1.15rem);line-height:1.65;font-weight:300}
-  .hero-num{font-size:clamp(3.4rem,9.5vw,8rem);line-height:.9;letter-spacing:-.045em;font-weight:500}
+  .hero-num{font-size:clamp(2.05rem,10vw,8rem);line-height:.9;letter-spacing:-.045em;font-weight:500;max-width:100%;overflow-wrap:break-word}
   .micro{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:700}
+  .safe-x{padding-left:max(1.25rem,env(safe-area-inset-left));padding-right:max(1.25rem,env(safe-area-inset-right))}
+  .safe-b{padding-bottom:env(safe-area-inset-bottom)}
+  .hscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .hscroll::-webkit-scrollbar{display:none}.hscroll{scrollbar-width:none}
   .no-bar::-webkit-scrollbar{width:0;height:0}.no-bar{scrollbar-width:none}
   .lux-input{background:rgba(0,0,0,.22);border:1px solid var(--line2);color:var(--text);outline:none;transition:border-color .25s,box-shadow .25s}
   .lux-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
@@ -328,27 +390,45 @@ function ThemeStyles() {
   .fos button:focus-visible,.fos input:focus-visible,.fos select:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-dim)}
   .screen-h{height:100vh;height:100dvh}
   .min-screen-h{min-height:100vh;min-height:100dvh}
+  .sect-pad{padding-left:max(1.35rem,env(safe-area-inset-left));padding-right:max(1.35rem,env(safe-area-inset-right))}
+  @media(min-width:640px){.sect-pad{padding-left:max(2.5rem,env(safe-area-inset-left));padding-right:max(2.5rem,env(safe-area-inset-right))}}
+  @media(min-width:1024px){.sect-pad{padding-left:max(12rem,env(safe-area-inset-left));padding-right:max(4rem,env(safe-area-inset-right))}}
   `;
   return <style>{css}</style>;
 }
 
 /* --------------------------------------------------------------- primitives */
-function Reveal({ delay = 0, y = 20, className = "", children }) {
+function Reveal({ delay = 0, y = 22, x = 0, className = "", children }) {
   const reduce = useReducedMotion();
   return (
     <motion.div className={className}
-      initial={{ opacity: 0, y: reduce ? 0 : y }} whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.2 }} transition={{ duration: 0.75, ease: EASE, delay: delay * 0.09 }}>
+      initial={{ opacity: 0, y: reduce ? 0 : y, x: reduce ? 0 : x, filter: reduce ? "none" : "blur(4px)" }}
+      whileInView={{ opacity: 1, y: 0, x: 0, filter: "blur(0px)" }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{ duration: 0.8, ease: EASE, delay: delay * 0.09 }}>
       {children}
     </motion.div>
   );
 }
 function Eyebrow({ children }) {
+  const reduce = useReducedMotion();
   return (
     <Reveal>
       <div className="flex items-center gap-2.5 mb-6">
-        <span className="rounded-full" style={{ width: 6, height: 6, background: "var(--accent)", boxShadow: "0 0 10px var(--accent)" }} />
-        <span className="eyebrow text-muted">{children}</span>
+        <motion.span className="rounded-full shrink-0"
+          style={{ width: 6, height: 6, background: "var(--accent)", boxShadow: "0 0 10px var(--accent)", display: "inline-block" }}
+          initial={{ scale: 0 }}
+          whileInView={{ scale: [0, 1.5, 1] }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.55, ease: EASE, times: [0, 0.6, 1] }}
+        />
+        <motion.span className="eyebrow text-muted"
+          initial={{ opacity: 0, x: reduce ? 0 : -6 }}
+          whileInView={{ opacity: 1, x: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}>
+          {children}
+        </motion.span>
       </div>
     </Reveal>
   );
@@ -364,6 +444,11 @@ function AnimatedNumber({ value, prefix = "", className = "" }) {
   const inView = useInView(ref, { amount: 0.4 });
   const display = useCountUp(value, inView);
   return <span ref={ref} className={className}>{prefix}{fmt(display)}</span>;
+}
+/* StatCounter — like AnimatedNumber but fired by an external trigger (e.g. parent inView) */
+function StatCounter({ value, prefix = "", className = "", trigger }) {
+  const display = useCountUp(value, trigger);
+  return <span className={className}>{prefix}{fmt(display)}</span>;
 }
 function GlassCard({ className = "", children }) {
   return <div className={`glass rounded-3xl card-hover ${className}`}>{children}</div>;
@@ -401,17 +486,18 @@ function Segmented({ value, onChange, options, id }) {
     </div>
   );
 }
-/* SectionShell — full-height, free-scroll, subtle scroll-linked parallax */
+/* SectionShell — full-height, free-scroll, scroll-linked parallax + depth fade */
 function SectionShell({ id, children }) {
   const ref = useRef(null);
-  const inView = useInView(ref, { once: true, amount: 0.2 });
+  const inView = useInView(ref, { once: true, amount: 0.15 });
   const container = useContext(ScrollContext);
   const reduce = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, container: container || undefined, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], [reduce ? 0 : 28, reduce ? 0 : -28]);
+  const y = useTransform(scrollYProgress, [0, 1], [reduce ? 0 : 42, reduce ? 0 : -42]);
+  const opacity = useTransform(scrollYProgress, [0, 0.12, 0.88, 1], [reduce ? 1 : 0.2, 1, 1, reduce ? 1 : 0.2]);
   return (
-    <section id={id} ref={ref} className="min-screen-h w-full flex flex-col justify-center px-7 md:px-14 lg:pl-48 lg:pr-20 py-36">
-      <motion.div style={{ y }} className="w-full max-w-5xl mx-auto lg:mx-0">
+    <section id={id} ref={ref} className="min-screen-h w-full flex flex-col justify-center py-28 sm:py-36 sect-pad">
+      <motion.div style={{ y, opacity }} className="w-full max-w-5xl mx-auto lg:mx-0">
         {typeof children === "function" ? children(inView) : children}
       </motion.div>
     </section>
@@ -421,18 +507,29 @@ function SectionShell({ id, children }) {
 /* ----------------------------------------------------------- parallax glows */
 function GlowField({ scrollYProgress }) {
   const reduce = useReducedMotion();
-  const y1 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -240]);
-  const y2 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 200]);
-  const s1 = useTransform(scrollYProgress, [0, 0.5, 1], [1, 1.22, 1]);
+  const y1 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -300]);
+  const y2 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 260]);
+  const y3 = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -180]);
+  const s1 = useTransform(scrollYProgress, [0, 0.5, 1], [1, 1.25, 0.9]);
+  const s2 = useTransform(scrollYProgress, [0, 0.5, 1], [0.9, 1.15, 1.3]);
+  const op1 = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [0.7, 1, 0.8, 0.5]);
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
-      <motion.div style={{ y: y1, scale: s1, top: "-14%", right: "-10%", width: 660, height: 660, background: "radial-gradient(circle, rgba(203,176,121,.15), transparent 62%)", filter: "blur(22px)" }} className="absolute rounded-full" />
-      <motion.div style={{ y: y2, top: "32%", left: "-16%", width: 580, height: 580, background: "radial-gradient(circle, rgba(134,183,145,.11), transparent 60%)", filter: "blur(22px)" }} className="absolute rounded-full" />
-      <motion.div style={{ y: y1, bottom: "-16%", left: "42%", width: 700, height: 700, background: "radial-gradient(circle, rgba(210,145,110,.09), transparent 62%)", filter: "blur(26px)" }} className="absolute rounded-full" />
+      {/* Primary accent orb — top right, moves up on scroll */}
+      <motion.div style={{ y: y1, scale: s1, opacity: op1, top: "-14%", right: "-10%", width: 660, height: 660, background: "radial-gradient(circle, rgba(203,176,121,.18), transparent 62%)", filter: "blur(22px)" }} className="absolute rounded-full" />
+      {/* Green orb — mid left, moves down */}
+      <motion.div style={{ y: y2, scale: s2, top: "28%", left: "-18%", width: 600, height: 600, background: "radial-gradient(circle, rgba(134,183,145,.13), transparent 60%)", filter: "blur(24px)" }} className="absolute rounded-full" />
+      {/* Warm debit orb — bottom centre */}
+      <motion.div style={{ y: y3, bottom: "-18%", left: "38%", width: 720, height: 720, background: "radial-gradient(circle, rgba(210,145,110,.10), transparent 62%)", filter: "blur(28px)" }} className="absolute rounded-full" />
+      {/* Subtle second accent — top left counter-scroll */}
+      <motion.div style={{ y: y2, top: "-8%", left: "30%", width: 380, height: 380, background: "radial-gradient(circle, rgba(203,176,121,.07), transparent 68%)", filter: "blur(18px)" }} className="absolute rounded-full" />
       {!reduce && (
         <>
-          <motion.div className="absolute rounded-full" style={{ top: "20%", left: "18%", width: 6, height: 6, background: "var(--accent)", filter: "blur(1px)" }} animate={{ y: [0, -24, 0], opacity: [0.2, 0.55, 0.2] }} transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }} />
-          <motion.div className="absolute rounded-full" style={{ top: "66%", right: "22%", width: 4, height: 4, background: "var(--credit)", filter: "blur(1px)" }} animate={{ y: [0, 20, 0], opacity: [0.15, 0.45, 0.15] }} transition={{ duration: 15, repeat: Infinity, ease: "easeInOut", delay: 2 }} />
+          {/* Floating particles */}
+          <motion.div className="absolute rounded-full" style={{ top: "18%", left: "16%", width: 6, height: 6, background: "var(--accent)", filter: "blur(1px)" }} animate={{ y: [0, -28, 0], opacity: [0.18, 0.6, 0.18] }} transition={{ duration: 11, repeat: Infinity, ease: "easeInOut" }} />
+          <motion.div className="absolute rounded-full" style={{ top: "64%", right: "20%", width: 4, height: 4, background: "var(--credit)", filter: "blur(1px)" }} animate={{ y: [0, 22, 0], opacity: [0.12, 0.42, 0.12] }} transition={{ duration: 14, repeat: Infinity, ease: "easeInOut", delay: 2.5 }} />
+          <motion.div className="absolute rounded-full" style={{ top: "42%", left: "62%", width: 3, height: 3, background: "var(--accent-soft)", filter: "blur(0.5px)" }} animate={{ y: [0, -18, 0], x: [0, 8, 0], opacity: [0.1, 0.35, 0.1] }} transition={{ duration: 17, repeat: Infinity, ease: "easeInOut", delay: 5 }} />
+          <motion.div className="absolute rounded-full" style={{ top: "78%", left: "28%", width: 5, height: 5, background: "var(--debit)", filter: "blur(1px)" }} animate={{ y: [0, 16, 0], opacity: [0.1, 0.3, 0.1] }} transition={{ duration: 19, repeat: Infinity, ease: "easeInOut", delay: 7 }} />
         </>
       )}
     </div>
@@ -487,7 +584,7 @@ function MonthPill({ month, onPrev, onNext }) {
 }
 function MobileBar({ month, onPrev, onNext, onMenu, onImport }) {
   return (
-    <div className="lg:hidden fixed top-0 inset-x-0 z-40 h-14 flex items-center justify-between px-4 glass">
+    <div className="lg:hidden fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 glass" style={{ paddingTop: "env(safe-area-inset-top)", height: "calc(3.5rem + env(safe-area-inset-top))" }}>
       <div className="flex items-center gap-2">
         <span className="w-7 h-7 rounded-xl accent-grad flex items-center justify-center"><Wallet size={14} color="#1a160c" /></span>
         <span className="serif" style={{ fontSize: 17, fontWeight: 400 }}>FinanceOS</span>
@@ -511,8 +608,8 @@ function MobileSheet({ open, active, onClose }) {
       {open && (
         <motion.div className="lg:hidden fixed inset-0 z-50 flex flex-col" style={{ background: "rgba(8,11,10,.86)", backdropFilter: "blur(12px)" }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-          <div className="flex justify-end p-4"><button onClick={onClose} className="w-10 h-10 rounded-xl bg-surface2 border border-line2 flex items-center justify-center text-app cursor-pointer"><X size={18} /></button></div>
-          <motion.div className="flex-1 flex flex-col justify-center gap-2 px-9" variants={vStagger} initial="hidden" animate="show">
+          <div className="flex justify-end p-4" style={{ paddingTop: "max(1rem,env(safe-area-inset-top))" }}><button onClick={onClose} className="w-10 h-10 rounded-xl bg-surface2 border border-line2 flex items-center justify-center text-app cursor-pointer"><X size={18} /></button></div>
+          <motion.div className="flex-1 flex flex-col justify-center gap-2 px-9" style={{ paddingBottom: "env(safe-area-inset-bottom)" }} variants={vStagger} initial="hidden" animate="show">
             {SECTIONS.map((s, i) => (
               <motion.button key={s.id} variants={vItem} onClick={() => { goTo(s.id, reduce); onClose(); }} className="text-left py-2.5 serif bg-transparent border-0 cursor-pointer" style={{ fontSize: 26, fontWeight: 300, color: active === s.id ? "var(--text)" : "var(--text2)" }}>
                 <span className="mono micro text-muted mr-3">{String(i + 1).padStart(2, "0")}</span>{s.label}
@@ -540,46 +637,99 @@ function Toast({ msg }) {
 /* ============================================================ SECTIONS (9) */
 
 /* 1 — Command Center */
-function CommandCenter({ totals, month, isEmpty, onImport, onAdd }) {
+function CommandCenter({ totals, month, isEmpty, onImport, onAdd, account }) {
   const reduce = useReducedMotion();
   const neg = totals.net < 0;
+
+  // Word-by-word stagger for the cinematic tagline
+  const tagline = isEmpty ? ["Your", "financial", "command", "center."] : (neg ? ["Net", "negative", `·`, month.short] : ["Net", "positive", `·`, month.short]);
+  const wordVars = {
+    hidden: {},
+    show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+  };
+  const wordItem = {
+    hidden: { opacity: 0, y: reduce ? 0 : 40, filter: reduce ? "none" : "blur(6px)" },
+    show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.9, ease: EASE } },
+  };
+
+  // Stats counter ref — trigger on mount since hero is first visible
+  const statsRef = useRef(null);
+  const statsInView = useInView(statsRef, { once: true, amount: 0.2 });
+
   return (
     <SectionShell id="command">
-      <Eyebrow>{isEmpty ? "Welcome" : (neg ? "Net negative" : "Net positive")} · {month.long}</Eyebrow>
-      <Reveal delay={1}>
-        <motion.div className={`hero-num mono mb-6 ${neg ? "text-debit" : "text-app"}`} animate={reduce ? {} : { y: [0, -5, 0] }} transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}>
-          {neg ? "−" : ""}<AnimatedNumber value={Math.abs(totals.net)} prefix="₹" />
-        </motion.div>
+      {/* Cinematic eyebrow */}
+      <Eyebrow>{account ? `Account · ${account}` : "Personal finance"} · {month.long}</Eyebrow>
+
+      {/* Giant word-by-word tagline */}
+      <motion.div
+        className="serif mb-4 leading-none"
+        style={{ fontSize: "clamp(2.6rem, 10vw, 7.5rem)", fontWeight: 300, letterSpacing: "-0.02em", lineHeight: 1.0 }}
+        variants={wordVars} initial="hidden" animate="show">
+        {tagline.map((w, i) => (
+          <motion.span key={i} variants={wordItem} style={{ display: "inline-block", marginRight: "0.28em", color: i === tagline.length - 1 ? "var(--accent-soft)" : "var(--text)" }}>
+            {w}
+          </motion.span>
+        ))}
+      </motion.div>
+
+      {/* Net number — the centrepiece */}
+      <Reveal delay={4}>
+        <div className="flex items-baseline gap-4 mb-10 mt-2">
+          <motion.div
+            className={`hero-num mono ${neg ? "text-debit" : "text-app"}`}
+            animate={reduce ? {} : { y: [0, -4, 0] }}
+            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}>
+            {neg ? "−" : "+"}<AnimatedNumber value={Math.abs(totals.net)} prefix="₹" />
+          </motion.div>
+          {!isEmpty && (
+            <motion.span className="text-muted lead hidden sm:block" style={{ fontSize: "clamp(.85rem,1.2vw,1rem)" }}>
+              {totals.count} transactions
+            </motion.span>
+          )}
+        </div>
       </Reveal>
-      <Reveal delay={2}>
-        <p className="lead text-2 max-w-md mb-10">{isEmpty ? "Your financial command center is ready. Bring it to life with a statement or your first entry." : `Your net position across ${totals.count} transactions this month.`}</p>
-      </Reveal>
+
       {isEmpty ? (
-        <Reveal delay={3}>
+        <Reveal delay={5}>
           <div className="flex flex-wrap items-center gap-3">
-            <motion.button whileTap={{ scale: 0.98 }} onClick={onImport} className="accent-grad rounded-full px-6 py-3 font-bold cursor-pointer border-0 flex items-center gap-2" style={{ color: "#1a160c", fontSize: 14 }}><Upload size={15} /> Import statement</motion.button>
-            <motion.button whileTap={{ scale: 0.98 }} onClick={onAdd} className="rounded-full px-6 py-3 font-semibold text-app bg-surface2 border border-line2 cursor-pointer flex items-center gap-2" style={{ fontSize: 14 }}><Plus size={15} /> Add manually</motion.button>
+            <motion.button whileTap={{ scale: 0.97 }} onClick={onImport} className="accent-grad rounded-full px-6 py-3 font-bold cursor-pointer border-0 flex items-center gap-2" style={{ color: "#1a160c", fontSize: 14 }}><Upload size={15} /> Import statement</motion.button>
+            <motion.button whileTap={{ scale: 0.97 }} onClick={onAdd} className="rounded-full px-6 py-3 font-semibold text-app bg-surface2 border border-line2 cursor-pointer flex items-center gap-2" style={{ fontSize: 14 }}><Plus size={15} /> Add manually</motion.button>
             <span className="hidden md:flex items-center gap-1.5 text-muted ml-1" style={{ fontSize: 12 }}>or press <span className="kbd">⌘K</span></span>
           </div>
         </Reveal>
       ) : (
-        <>
-          <motion.div className="flex items-stretch gap-0" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
+        /* Stats row — counters fire when row enters view */
+        <Reveal delay={5}>
+          <motion.div ref={statsRef} className="flex items-stretch gap-0 flex-wrap"
+            variants={vStagger} initial="hidden" animate={statsInView ? "show" : "hidden"}>
             {[
               { l: "Received", v: totals.credit, cls: "text-credit", pre: "₹" },
               { l: "Spent", v: totals.debit, cls: "text-debit", pre: "₹" },
               { l: "Entries", v: totals.count, cls: "text-app", pre: "" },
             ].map((a, i) => (
-              <motion.div key={a.l} variants={vItem} className="flex flex-col gap-1.5 pr-9 mr-9" style={{ borderRight: i < 2 ? "1px solid var(--line)" : "none" }}>
+              <motion.div key={a.l} variants={vItem}
+                className="flex flex-col gap-1.5 pr-4 mr-4 sm:pr-9 sm:mr-9"
+                style={{ borderRight: i < 2 ? "1px solid var(--line)" : "none" }}>
                 <span className="micro text-muted">{a.l}</span>
-                <span className={`mono text-xl font-medium ${a.cls}`}><AnimatedNumber value={a.v} prefix={a.pre} /></span>
+                <StatCounter value={a.v} prefix={a.pre} className={`mono text-base sm:text-xl font-medium ${a.cls}`} trigger={statsInView} />
               </motion.div>
             ))}
           </motion.div>
-          <Reveal delay={4}><div className="flex items-center gap-2 mt-8 text-faint micro"><span style={{ width: 6, height: 6, borderRadius: 9999, background: "var(--credit)", display: "inline-block" }} /> Live · 6-month window</div></Reveal>
-        </>
+        </Reveal>
       )}
-      <motion.div className="absolute bottom-10 left-7 md:left-14 lg:left-48 flex items-center gap-2 text-muted micro" animate={reduce ? {} : { y: [0, 5, 0] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}>
+
+      <Reveal delay={6}>
+        <div className="flex items-center gap-2 mt-8 text-faint micro">
+          <motion.span style={{ width: 6, height: 6, borderRadius: 9999, background: "var(--credit)", display: "inline-block" }}
+            animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }} />
+          Live · 6-month window
+        </div>
+      </Reveal>
+
+      {/* Scroll hint */}
+      <motion.div className="absolute bottom-10 left-7 md:left-14 lg:left-48 flex items-center gap-2 text-muted micro"
+        animate={reduce ? {} : { y: [0, 5, 0] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}>
         <TrendingDown size={12} /> Scroll
       </motion.div>
     </SectionShell>
@@ -590,8 +740,8 @@ function CommandCenter({ totals, month, isEmpty, onImport, onAdd }) {
 function IncomeExpense({ totals }) {
   const tot = totals.credit + totals.debit || 1;
   const cells = [
-    { l: "Received", v: totals.credit, n: totals.rows.filter((t) => t.type === "credit").length, cls: "text-credit", Icon: TrendingUp, sub: "credits" },
-    { l: "Spent", v: totals.debit, n: totals.rows.filter((t) => t.type !== "credit").length, cls: "text-debit", Icon: TrendingDown, sub: "debits" },
+    { l: "Received", v: totals.credit, n: totals.rows.filter((t) => isCredit(t)).length, cls: "text-credit", Icon: TrendingUp, sub: "credits" },
+    { l: "Spent", v: totals.debit, n: totals.rows.filter((t) => !isCredit(t)).length, cls: "text-debit", Icon: TrendingDown, sub: "debits" },
   ];
   return (
     <SectionShell id="income">
@@ -600,9 +750,9 @@ function IncomeExpense({ totals }) {
       <Sub>What came in, against what went out — and the gap between them.</Sub>
       <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
         {cells.map((c) => (
-          <motion.div key={c.l} variants={vItem} className="bg-surface rounded-3xl p-7 border border-line card-hover">
+          <motion.div key={c.l} variants={vItem} className="bg-surface rounded-3xl p-5 sm:p-7 border border-line card-hover">
             <div className="flex items-center gap-2 micro text-muted mb-4"><c.Icon size={13} className={c.cls} /> {c.l}</div>
-            <div className={`mono font-medium ${c.cls}`} style={{ fontSize: "2rem", letterSpacing: "-.02em" }}><AnimatedNumber value={c.v} prefix="₹" /></div>
+            <div className={`mono font-medium ${c.cls}`} style={{ fontSize: "clamp(1.6rem,7vw,2rem)", letterSpacing: "-.02em" }}><AnimatedNumber value={c.v} prefix="₹" /></div>
             <div className="text-muted mt-2" style={{ fontSize: 12 }}>{c.n} {c.sub}</div>
           </motion.div>
         ))}
@@ -642,7 +792,7 @@ function Cashflow({ txns, idx }) {
       <Reveal delay={2}>
         <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-12 items-center">
           <div>
-            <motion.div className="flex items-end gap-5 md:gap-7" style={{ height: 200 }} variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
+            <motion.div className="flex items-end gap-2.5 sm:gap-5 md:gap-7" style={{ height: 200 }} variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
               {series.map((s, i) => {
                 const now = i === idx;
                 return (
@@ -689,16 +839,16 @@ function Breakdown({ totals }) {
             const color = GROUP_COLORS[g.group] || "#8A938C";
             return (
               <motion.div key={g.group} variants={vItem} className="py-4 border-b border-line last:border-0">
-                <button onClick={() => setOpen(isOpen ? null : g.group)} className="w-full flex items-center gap-5 bg-transparent border-0 cursor-pointer text-app">
+                <button onClick={() => setOpen(isOpen ? null : g.group)} className="w-full flex items-center gap-3 sm:gap-5 bg-transparent border-0 cursor-pointer text-app">
                   <motion.span animate={{ rotate: isOpen ? 90 : 0 }} transition={{ duration: 0.3, ease: EASE }} className="text-muted shrink-0"><ChevronRight size={13} /></motion.span>
-                  <span className="font-medium shrink-0 text-left" style={{ fontSize: 14, width: 150 }}>{g.group}</span>
-                  <span className="flex-1"><Bar pct={(g.total / max) * 100} color={`linear-gradient(90deg,${color},${color}99)`} delay={gi * 0.05} h={5} /></span>
-                  <span className="mono font-semibold text-right shrink-0" style={{ fontSize: 14, width: 90 }}>₹{fmt(g.total)}</span>
+                  <span className="font-medium shrink-0 text-left truncate w-24 sm:w-[150px]" style={{ fontSize: 14 }}>{g.group}</span>
+                  <span className="flex-1 min-w-0"><Bar pct={(g.total / max) * 100} color={`linear-gradient(90deg,${color},${color}99)`} delay={gi * 0.05} h={5} /></span>
+                  <span className="mono font-semibold text-right shrink-0 w-[74px] sm:w-[90px]" style={{ fontSize: 14 }}>₹{fmt(g.total)}</span>
                 </button>
                 <AnimatePresence initial={false}>
                   {isOpen && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.32, ease: EASE }} className="overflow-hidden">
-                      <div className="grid gap-x-8 gap-y-1 pt-3.5 pl-11" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))" }}>
+                      <div className="grid gap-x-8 gap-y-1 pt-3.5 pl-7 sm:pl-11" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))" }}>
                         {g.subs.map((s) => (<div key={s.name} className="flex justify-between text-muted" style={{ fontSize: 12.5 }}><span>{s.name}</span><span className="mono text-2">₹{fmt(s.amt)}</span></div>))}
                       </div>
                     </motion.div>
@@ -727,8 +877,8 @@ function Transactions({ txns, globalIdx, onDelete }) {
     if (q) r = r.filter((t) => (t.note || "").toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase()));
     return r;
   }, [allRows, type, q]);
-  const credit = allRows.filter((t) => t.type === "credit").reduce((s, t) => s + t.amt, 0);
-  const debit = allRows.filter((t) => t.type !== "credit").reduce((s, t) => s + t.amt, 0);
+  const credit = allRows.filter((t) => isCredit(t)).reduce((s, t) => s + t.amt, 0);
+  const debit = allRows.filter((t) => !isCredit(t)).reduce((s, t) => s + t.amt, 0);
   return (
     <SectionShell id="transactions">
       <div className="flex flex-wrap items-end justify-between gap-5 mb-7">
@@ -756,9 +906,9 @@ function Transactions({ txns, globalIdx, onDelete }) {
       <Reveal delay={2}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the ledger…" className="lux-input rounded-full pl-8 pr-4 py-2" style={{ fontSize: 13, width: 200 }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the ledger…" className="lux-input rounded-full pl-8 pr-4 py-2 w-full sm:w-[200px]" style={{ fontSize: 13 }} />
           </div>
         </div>
       </Reveal>
@@ -769,7 +919,7 @@ function Transactions({ txns, globalIdx, onDelete }) {
           <div className="max-h-[54vh] overflow-y-auto no-bar -mx-3">
             <AnimatePresence initial={false}>
               {rows.map((t) => {
-                const isC = t.type === "credit";
+                const isC = isCredit(t);
                 const d = new Date(t.date + "T00:00:00");
                 return (
                   <motion.div key={t.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
@@ -780,11 +930,14 @@ function Transactions({ txns, globalIdx, onDelete }) {
                     </div>
                     <div className="py-4 min-w-0">
                       <div className="truncate text-app" style={{ fontSize: 14.5 }}>{t.note || "—"}</div>
-                      <div className="text-muted mt-1" style={{ fontSize: 12 }}>{t.cat}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-muted" style={{ fontSize: 12 }}>{t.cat}</span>
+                        {t.bank && t.bank !== "Axis" && t.bank !== "" && <span className="mono rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--surface2)", color: "var(--text-faint)", border: "1px solid var(--line2)" }}>{t.bank}</span>}
+                      </div>
                     </div>
                     <div className="py-4 flex items-center gap-4 justify-end pl-4">
                       <span className="mono font-semibold whitespace-nowrap" style={{ fontSize: 15, color: isC ? "var(--credit)" : "var(--debit)" }}>{isC ? "+" : "−"}₹{fmt(t.amt)}</span>
-                      <button onClick={() => onDelete(t.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-faint hover:text-debit bg-transparent border-0 cursor-pointer"><Trash2 size={14} /></button>
+                      <button onClick={() => onDelete(t.id)} className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-faint hover:text-debit bg-transparent border-0 cursor-pointer p-1 -m-1"><Trash2 size={14} /></button>
                     </div>
                   </motion.div>
                 );
@@ -818,7 +971,7 @@ function QuickAdd({ onAdd, month }) {
       <SectionTitle>Add a transaction</SectionTitle>
       <Sub>Type the particulars — the category resolves itself.</Sub>
       <Reveal delay={2}>
-        <div className="bg-surface rounded-3xl border border-line p-8 max-w-md card-hover">
+        <div className="bg-surface rounded-3xl border border-line p-6 sm:p-8 max-w-md card-hover">
           <Field label="Particulars"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Hemant Stores, Mumbai Metro" className="lux-input rounded-xl px-3.5 py-3 w-full" style={{ fontSize: 14 }} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label={<span className="text-credit">Credit ₹</span>}><input type="number" value={credit} onChange={(e) => setCredit(e.target.value)} placeholder="0" className="lux-input rounded-xl px-3.5 py-3 w-full" style={{ fontSize: 14 }} /></Field>
@@ -1150,17 +1303,57 @@ function CommandPalette({ open, onClose, onJump, onImport, onAdd, onClear }) {
 /* =================================================================== APP */
 function LoadingScreen() {
   return (
-    <div className="fos font-ui bg-void text-app screen-h flex flex-col items-center justify-center gap-5">
+    <motion.div
+      className="fos font-ui bg-void text-app screen-h flex flex-col items-center justify-center gap-6"
+      exit={{ opacity: 0, scale: 1.02 }}
+      transition={{ duration: 0.55, ease: EASE }}
+    >
       <ThemeStyles />
-      <div className="fixed inset-0 ambient pointer-events-none" />
-      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }}
-        style={{ width: 30, height: 30, borderRadius: "50%", border: "2px solid var(--line2)", borderTopColor: "var(--accent)" }} />
-      <span className="micro text-muted">Loading your ledger…</span>
-    </div>
+      {/* Ambient glow behind icon */}
+      <div style={{ position: "relative", width: 64, height: 64 }}>
+        <motion.div
+          style={{ position: "absolute", inset: -16, borderRadius: "50%", background: "radial-gradient(circle, rgba(203,176,121,.28), transparent 70%)", filter: "blur(8px)" }}
+          animate={{ scale: [1, 1.18, 1], opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+        />
+        {/* Wallet icon with breath */}
+        <motion.div
+          className="accent-grad rounded-2xl flex items-center justify-center"
+          style={{ width: 64, height: 64, position: "relative" }}
+          animate={{ scale: [1, 1.06, 1] }}
+          transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a160c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+            <path d="M16 3l-4 4-4-4" />
+            <circle cx="17" cy="13" r="1.5" fill="#1a160c" stroke="none" />
+          </svg>
+        </motion.div>
+      </div>
+      {/* Staggered text */}
+      <motion.div className="flex flex-col items-center gap-1.5"
+        variants={{ show: { transition: { staggerChildren: 0.12 } } }}
+        initial="hidden" animate="show">
+        <motion.span className="serif" style={{ fontSize: 22, fontWeight: 400, color: "var(--text)" }}
+          variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } }}>
+          FinanceOS
+        </motion.span>
+        <motion.span className="micro text-muted"
+          variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } }}>
+          Loading your ledger…
+        </motion.span>
+      </motion.div>
+      {/* Thin progress shimmer */}
+      <motion.div style={{ width: 80, height: 1.5, background: "var(--line2)", borderRadius: 9999, overflow: "hidden", marginTop: 8 }}>
+        <motion.div style={{ height: "100%", background: "linear-gradient(90deg, transparent, var(--accent), transparent)", borderRadius: 9999 }}
+          animate={{ x: [-80, 80] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }} />
+      </motion.div>
+    </motion.div>
   );
 }
 
-export default function App() {
+function Dashboard({ user, signOut }) {
   const { txns, loading, error, retry, dismissError, addTransaction, removeTransaction, bulkAdd, clearAll } = useFinanceData();
   const [offset, setOffset] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1175,12 +1368,15 @@ export default function App() {
 
   const idx = MONTHS.length - 1 + offset;
   const month = MONTHS[idx];
-  const totals = useMemo(() => totalsFor(txns, month), [txns, month]);
+  const [account, setAccount] = useState("");
+  const accounts = useMemo(() => [...new Set(txns.map((t) => t.bank).filter((b) => b && b !== "Axis"))], [txns]);
+  const viewTxns = useMemo(() => (account ? txns.filter((t) => t.bank === account) : txns), [txns, account]);
+  const totals = useMemo(() => totalsFor(viewTxns, month), [viewTxns, month]);
 
   const prevMonth = () => setOffset((o) => Math.max(-(MONTHS.length - 1), o - 1));
   const nextMonth = () => setOffset((o) => Math.min(0, o + 1));
   const showToast = (msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(""), 2400); };
-  const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(t.type === "credit" ? "Credit recorded" : "Debit recorded"); };
+  const handleAdd = (t, err) => { if (err) return showToast(err); addTransaction(t); showToast(isCredit(t) ? "Credit recorded" : "Debit recorded"); };
   const handleBulkAdd = (rows) => { bulkAdd(rows.map((r) => ({ note: r.note, cat: r.cat, type: r.type, amt: r.amt, date: r.date, bank: r.bank }))); showToast(`${rows.length} transaction${rows.length > 1 ? "s" : ""} imported`); };
 
   useEffect(() => {
@@ -1196,7 +1392,9 @@ export default function App() {
 
   return (
     <ScrollContext.Provider value={scrollRef}>
-      <div className="fos font-ui bg-void text-app">
+      <motion.div className="fos font-ui bg-void text-app"
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.65, ease: EASE }}>
         <ThemeStyles />
         <GlowField scrollYProgress={scrollYProgress} />
         <motion.div className="fixed top-0 left-0 right-0 z-50 accent-grad" style={{ height: 2, scaleX: scrollYProgress, transformOrigin: "0%" }} />
@@ -1212,23 +1410,35 @@ export default function App() {
         </AnimatePresence>
         <Spine active={active} />
         <MonthPill month={month} onPrev={prevMonth} onNext={nextMonth} />
+        {accounts.length > 1 && (
+          <div className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-1 glass rounded-full p-1 hscroll flex-nowrap" style={{ top: "calc(4.2rem + env(safe-area-inset-top))", maxWidth: "calc(100vw - 1.5rem)" }}>
+            {[{ l: "All", v: "" }, ...accounts.map((a) => ({ l: a, v: a }))].map((o) => (
+              <button key={o.v} onClick={() => setAccount(o.v)}
+                className="rounded-full px-3 py-1 font-semibold cursor-pointer border-0 transition-all mono shrink-0 whitespace-nowrap"
+                style={{ fontSize: 11, background: account === o.v ? "var(--accent)" : "transparent", color: account === o.v ? "#1a160c" : "var(--text2)" }}>
+                {o.l}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="hidden lg:flex items-center gap-2 fixed top-7 z-40" style={{ right: "12.5rem" }}>
           <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-1.5 glass rounded-full px-3 py-2 cursor-pointer border-0" title="Command palette"><span className="kbd">⌘K</span></button>
           <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 glass rounded-full px-4 py-2 font-semibold cursor-pointer border-0 text-app" style={{ fontSize: 12 }}><Upload size={13} style={{ color: "var(--accent)" }} /> Import</button>
+          {user?.picture && <img src={user.picture} alt={user.name} onClick={signOut} title={`Sign out (${user.email})`} className="rounded-full cursor-pointer" style={{ width: 28, height: 28, border: "1.5px solid var(--line2)" }} />}
         </div>
         <MobileBar month={month} onPrev={prevMonth} onNext={nextMonth} onMenu={() => setMenuOpen(true)} onImport={() => setImportOpen(true)} />
         <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
 
-        <div ref={scrollRef} className="relative screen-h overflow-y-auto no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
-          <CommandCenter totals={totals} month={month} isEmpty={txns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} />
+        <div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}>
+          <CommandCenter totals={totals} month={month} isEmpty={viewTxns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} account={account} />
           <IncomeExpense totals={totals} />
-          <Cashflow txns={txns} idx={idx} />
+          <Cashflow txns={viewTxns} idx={idx} />
           <Breakdown totals={totals} />
-          <Transactions txns={txns} globalIdx={idx} onDelete={removeTransaction} />
+          <Transactions txns={viewTxns} globalIdx={idx} onDelete={removeTransaction} />
           <QuickAdd onAdd={handleAdd} month={month} />
-          <Insights txns={txns} idx={idx} />
-          <HealthScore txns={txns} idx={idx} />
-          <Goals txns={txns} idx={idx} />
+          <Insights txns={viewTxns} idx={idx} />
+          <HealthScore txns={viewTxns} idx={idx} />
+          <Goals txns={viewTxns} idx={idx} />
         </div>
 
         <Toast msg={toast} />
@@ -1241,7 +1451,13 @@ export default function App() {
             <button onClick={() => { clearAll(); setClearOpen(false); showToast("All data cleared"); }} className="rounded-full px-4 py-2 font-bold cursor-pointer border-0" style={{ fontSize: 13, background: "var(--debit)", color: "#1a160c" }}>Clear all</button>
           </div>
         </Dialog>
-      </div>
+      </motion.div>
     </ScrollContext.Provider>
   );
+}
+
+export default function App() {
+  const { user, signIn, signOut, ready } = useAuth();
+  if (!user) return <LoginScreen onSignIn={signIn} ready={ready} />;
+  return <Dashboard user={user} signOut={signOut} />;
 }
