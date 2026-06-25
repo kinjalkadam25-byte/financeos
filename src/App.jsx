@@ -368,10 +368,11 @@ function usePullToRefresh(scrollRef, onRefresh) {
       const y = e.touches ? e.touches[0].clientY : e.clientY;
       const dy = y - startY.current;
       if (dy > 0 && el.scrollTop <= 0) {
+        // Prevent native pull-to-refresh / overscroll reload immediately
+        if (e.cancelable) e.preventDefault();
         // resistance curve so it feels rubbery
         const dist = Math.min(MAX, dy * 0.5);
         setPull(dist);
-        if (dist > 4 && e.cancelable) e.preventDefault(); // stop native overscroll
       } else {
         pulling.current = false;
         setPull(0);
@@ -452,6 +453,8 @@ function ThemeStyles() {
   .fos button:focus-visible,.fos input:focus-visible,.fos select:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-dim)}
   .screen-h{height:100vh;height:100dvh}
   .min-screen-h{min-height:100vh;min-height:100dvh}
+  html,body{overscroll-behavior-y:none}
+  .ptr-scroll{overscroll-behavior-y:contain}
   .sect-pad{padding-left:max(1.35rem,env(safe-area-inset-left));padding-right:max(1.35rem,env(safe-area-inset-right))}
   @media(min-width:640px){.sect-pad{padding-left:max(2.5rem,env(safe-area-inset-left));padding-right:max(2.5rem,env(safe-area-inset-right))}}
   @media(min-width:1024px){.sect-pad{padding-left:max(12rem,env(safe-area-inset-left));padding-right:max(4rem,env(safe-area-inset-right))}}
@@ -1514,7 +1517,7 @@ function Dashboard({ user, signOut }) {
           </motion.div>
         </motion.div>
 
-        <motion.div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar" style={{ zIndex: 1, scrollBehavior: "smooth" }}
+        <motion.div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar ptr-scroll" style={{ zIndex: 1, scrollBehavior: "smooth", overscrollBehaviorY: "contain" }}
           animate={{ y: pull }} transition={{ type: "spring", stiffness: 500, damping: 40 }}>
           <CommandCenter totals={totals} month={month} isEmpty={viewTxns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} account={account} />
           <IncomeExpense totals={totals} />
