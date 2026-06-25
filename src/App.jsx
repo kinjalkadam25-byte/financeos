@@ -349,6 +349,8 @@ function usePullToRefresh(scrollRef, onRefresh) {
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef(0);
   const pulling = useRef(false);
+  const pullRef = useRef(0);          // mirrors pull state for use in event closures
+  const refreshingRef = useRef(false); // mirrors refreshing state for use in event closures
   const THRESHOLD = 70;                       // px to trigger
   const MAX = 110;                            // px clamp
 
@@ -357,37 +359,44 @@ function usePullToRefresh(scrollRef, onRefresh) {
     if (!el) return;
 
     const onStart = (e) => {
-      // Only begin a pull when already scrolled to the very top
-      if (el.scrollTop <= 0 && !refreshing) {
+      if (el.scrollTop <= 0 && !refreshingRef.current) {
         startY.current = e.touches ? e.touches[0].clientY : e.clientY;
         pulling.current = true;
       }
     };
     const onMove = (e) => {
-      if (!pulling.current || refreshing) return;
+      if (!pulling.current || refreshingRef.current) return;
       const y = e.touches ? e.touches[0].clientY : e.clientY;
       const dy = y - startY.current;
       if (dy > 0 && el.scrollTop <= 0) {
-        // Prevent native pull-to-refresh / overscroll reload immediately
         if (e.cancelable) e.preventDefault();
-        // resistance curve so it feels rubbery
         const dist = Math.min(MAX, dy * 0.5);
+        pullRef.current = dist;
         setPull(dist);
       } else {
         pulling.current = false;
+        pullRef.current = 0;
         setPull(0);
       }
     };
     const onEnd = async () => {
       if (!pulling.current) return;
       pulling.current = false;
-      if (pull >= THRESHOLD && !refreshing) {
+      if (pullRef.current >= THRESHOLD && !refreshingRef.current) {
+        refreshingRef.current = true;
         setRefreshing(true);
+        pullRef.current = THRESHOLD;
         setPull(THRESHOLD);
         try { await onRefresh(); } finally {
-          setTimeout(() => { setRefreshing(false); setPull(0); }, 500);
+          setTimeout(() => {
+            refreshingRef.current = false;
+            setRefreshing(false);
+            pullRef.current = 0;
+            setPull(0);
+          }, 500);
         }
       } else {
+        pullRef.current = 0;
         setPull(0);
       }
     };
@@ -400,7 +409,7 @@ function usePullToRefresh(scrollRef, onRefresh) {
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);
     };
-  }, [scrollRef, onRefresh, pull, refreshing]);
+  }, [scrollRef, onRefresh]); // pull/refreshing removed — refs handle closure values
 
   return { pull, refreshing, threshold: THRESHOLD };
 }
@@ -467,8 +476,8 @@ function Reveal({ delay = 0, y = 22, x = 0, className = "", children }) {
   const reduce = useReducedMotion();
   return (
     <motion.div className={className}
-      initial={{ opacity: 0, y: reduce ? 0 : y, x: reduce ? 0 : x, filter: reduce ? "none" : "blur(4px)" }}
-      whileInView={{ opacity: 1, y: 0, x: 0, filter: "blur(0px)" }}
+      initial={{ opacity: 0, y: reduce ? 0 : y, x: reduce ? 0 : x }}
+      whileInView={{ opacity: 1, y: 0, x: 0 }}
       viewport={{ once: true, amount: 0.2 }}
       transition={{ duration: 0.8, ease: EASE, delay: delay * 0.09 }}>
       {children}
@@ -890,6 +899,7 @@ function Breakdown({ totals }) {
   const groups = useMemo(() => groupBreakdown(totals.rows), [totals.rows]);
   const max = groups[0]?.total || 1;
   const [open, setOpen] = useState(null);
+  useEffect(() => { setOpen(null); }, [groups]);
   return (
     <SectionShell id="breakdown">
       <Eyebrow>Where it goes</Eyebrow>
@@ -987,7 +997,7 @@ function Transactions({ txns, globalIdx, onDelete }) {
                 const isC = isCredit(t);
                 const d = new Date(t.date + "T00:00:00");
                 return (
-                  <motion.div key={t.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
+                  <motion.div key={t.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
                     className="group grid items-center row-hover rounded-xl px-3 border-b border-line" style={{ gridTemplateColumns: "auto 1fr auto" }}>
                     <div className="flex flex-col items-center justify-center mr-5 py-4" style={{ width: 38 }}>
                       <span className="mono text-app" style={{ fontSize: 15, lineHeight: 1 }}>{d.getDate()}</span>
