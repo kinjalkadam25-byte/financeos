@@ -143,8 +143,8 @@ const CLIENT_ID = "833202731310-jsjq6r9ie622fkou8ciprhlm822cl3v4.apps.googleuser
 const ALLOWED_EMAILS = ["kinjalkadam25@gmail.com", "jitendra04.kadam@gmail.com"];
 
 /* ----------------------------------------------------------------- backend */
-const APPS_SCRIPT_URL = ""; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
-const API_TOKEN = "";       // must match the token set in Apps Script via setToken()
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9pALAjN_EDDkIp1-OZf_y-qLa5jnTtN53Dse1vUzzIim93eYZixBufxwlgNCQ7_4W/exec"; // e.g. "https://script.google.com/macros/s/AKfyc.../exec"
+const API_TOKEN = "fos_kinjal2026";       // must match the token set in Apps Script via setToken()
 const CONNECTED = /^https:\/\//.test(APPS_SCRIPT_URL);
 
 async function apiGet(action, extra = {}) {
