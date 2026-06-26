@@ -168,9 +168,17 @@ async function apiPost(action, payload = {}) {
 
 /* ----------------------------------------------------------------- auth hook */
 function useAuth() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { const s = sessionStorage.getItem("fos_user"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
   const [ready, setReady] = useState(false);
   const clientRef = useRef(null);
+
+  const persistUser = (u) => {
+    try { if (u) sessionStorage.setItem("fos_user", JSON.stringify(u)); else sessionStorage.removeItem("fos_user"); } catch {}
+    setUser(u);
+  };
+
   useEffect(() => {
     if (document.getElementById("gsi-script")) { setReady(true); return; }
     const s = document.createElement("script");
@@ -184,10 +192,10 @@ function useAuth() {
           fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${res.access_token}` } })
             .then((r) => r.json())
             .then((info) => {
-              if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(info.email)) { setUser(null); alert(`Access restricted. Sign in with an authorized account.`); return; }
-              setUser({ email: info.email, name: info.name, picture: info.picture, accessToken: res.access_token });
+              if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(info.email)) { persistUser(null); alert(`Access restricted. Sign in with an authorized account.`); return; }
+              persistUser({ email: info.email, name: info.name, picture: info.picture, accessToken: res.access_token });
             })
-            .catch(() => setUser(null));
+            .catch(() => {});
         },
       });
       setReady(true);
@@ -195,7 +203,7 @@ function useAuth() {
     document.head.appendChild(s);
   }, []);
   const signIn  = useCallback(() => { clientRef.current?.requestAccessToken(); }, []);
-  const signOut = useCallback(() => { if (user?.accessToken) window.google?.accounts.oauth2.revoke(user.accessToken, () => {}); setUser(null); }, [user]);
+  const signOut = useCallback(() => { if (user?.accessToken) window.google?.accounts.oauth2.revoke(user.accessToken, () => {}); persistUser(null); }, [user]);
   return { user, signIn, signOut, ready };
 }
 
