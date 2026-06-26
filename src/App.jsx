@@ -906,7 +906,7 @@ function Breakdown({ totals }) {
       {groups.length === 0 ? (
         <Reveal delay={2}><div className="text-muted lead py-10">No spending recorded this month yet.</div></Reveal>
       ) : (
-        <motion.div className="flex flex-col" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.2 }}>
+        <motion.div key={groups.map(g=>g.group).join(",")} className="flex flex-col" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: false, amount: 0.2 }}>
           {groups.map((g, gi) => {
             const isOpen = open === g.group;
             const color = GROUP_COLORS[g.group] || "#8A938C";
