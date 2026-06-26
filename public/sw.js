@@ -3,7 +3,7 @@
 // cache-first for assets (icons, fonts) for offline support.
 // On activation, old caches are immediately purged so updates show up fast.
 
-const CACHE = "financeos-v1";
+const CACHE = "financeos-v2";
 const STATIC = ["/financeos/", "/financeos/index.html"];
 
 self.addEventListener("install", (e) => {
