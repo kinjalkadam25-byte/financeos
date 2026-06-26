@@ -422,6 +422,33 @@ function usePullToRefresh(scrollRef, onRefresh) {
   return { pull, refreshing, threshold: THRESHOLD };
 }
 
+/* useScrollTopRefresh — on desktop web, refreshes data when user scrolls back to top */
+function useScrollTopRefresh(scrollRef, onRefresh) {
+  const [refreshing, setRefreshing] = useState(false);
+  const lastTop = useRef(0);
+  const cooldown = useRef(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = async () => {
+      const top = el.scrollTop;
+      // Trigger when scrolling back to top (was scrolled down, now at 0)
+      if (top === 0 && lastTop.current > 80 && !cooldown.current) {
+        cooldown.current = true;
+        setRefreshing(true);
+        try { await onRefresh(); } finally {
+          setRefreshing(false);
+          setTimeout(() => { cooldown.current = false; }, 2000);
+        }
+      }
+      lastTop.current = top;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [scrollRef, onRefresh]);
+  return refreshing;
+}
+
 /* ------------------------------------------------------------- motion presets */
 const vStagger = { hidden: {}, show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } } };
 const vItem = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.75, ease: EASE } } };
@@ -681,7 +708,7 @@ function MobileBar({ month, onPrev, onNext, onMenu, onImport }) {
     </div>
   );
 }
-function MobileSheet({ open, active, onClose }) {
+function MobileSheet({ open, active, onClose, onClear }) {
   const reduce = useReducedMotion();
   return (
     <AnimatePresence>
@@ -695,6 +722,11 @@ function MobileSheet({ open, active, onClose }) {
                 <span className="mono micro text-muted mr-3">{String(i + 1).padStart(2, "0")}</span>{s.label}
               </motion.button>
             ))}
+            <motion.div variants={vItem} className="mt-4 pt-4" style={{ borderTop: "1px solid var(--line)" }}>
+              <motion.button variants={vItem} onClick={onClear} className="text-left py-2.5 serif bg-transparent border-0 cursor-pointer" style={{ fontSize: 22, fontWeight: 300, color: "var(--debit)" }}>
+                <span className="mono micro text-muted mr-3">—</span>Clear data
+              </motion.button>
+            </motion.div>
           </motion.div>
         </motion.div>
       )}
@@ -1447,6 +1479,7 @@ function Dashboard({ user, signOut }) {
   const active = useScrollSpy(SECTIONS.map((s) => s.id));
   const { scrollYProgress } = useScroll({ container: scrollRef });
   const { pull, refreshing, threshold } = usePullToRefresh(scrollRef, retry);
+  const scrollRefreshing = useScrollTopRefresh(scrollRef, retry);
   const wasRefreshing = useRef(false);
 
   const idx = MONTHS.length - 1 + offset;
@@ -1495,6 +1528,20 @@ function Dashboard({ user, signOut }) {
             </motion.div>
           )}
         </AnimatePresence>
+        <AnimatePresence>
+          {scrollRefreshing && (
+            <motion.div className="hidden lg:flex fixed top-3 left-1/2 z-50 items-center gap-2 glass rounded-full px-4 py-2"
+              style={{ x: "-50%", fontSize: 12 }}
+              initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.25 }}>
+              <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+                style={{ display: "inline-block", width: 12, height: 12 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+              </motion.span>
+              <span className="text-2">Refreshing…</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Spine active={active} />
         <MonthPill month={month} onPrev={prevMonth} onNext={nextMonth} />
         {accounts.length > 1 && (
@@ -1514,7 +1561,7 @@ function Dashboard({ user, signOut }) {
           {user?.picture && <img src={user.picture} alt={user.name} onClick={signOut} title={`Sign out (${user.email})`} className="rounded-full cursor-pointer" style={{ width: 28, height: 28, border: "1.5px solid var(--line2)" }} />}
         </div>
         <MobileBar month={month} onPrev={prevMonth} onNext={nextMonth} onMenu={() => setMenuOpen(true)} onImport={() => setImportOpen(true)} />
-        <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} />
+        <MobileSheet open={menuOpen} active={active} onClose={() => setMenuOpen(false)} onClear={() => { setMenuOpen(false); setClearOpen(true); }} />
 
         {/* Pull-to-refresh indicator */}
         <motion.div
