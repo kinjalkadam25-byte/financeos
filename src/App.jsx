@@ -5,7 +5,7 @@ import {
 } from "framer-motion";
 import {
   TrendingUp, TrendingDown, Plus, Menu, X,
-  Target, Wallet, ChevronRight, Search, Trash2, Upload,
+  Wallet, ChevronRight, Search, Trash2, Upload,
 } from "lucide-react";
 
 /* ============================================================================
@@ -299,41 +299,6 @@ function groupBreakdown(rows) {
   return Object.entries(map)
     .map(([g, d]) => ({ group: g, total: d.total, subs: Object.entries(d.subs).map(([name, amt]) => ({ name, amt })).sort((a, b) => b.amt - a.amt) }))
     .sort((a, b) => b.total - a.total);
-}
-const seriesAll = (txns) => MONTHS.map((mo) => ({ mo, ...totalsFor(txns, mo) }));
-function computeInsights(txns, idx) {
-  const series = seriesAll(txns); const cur = series[idx];
-  if (!cur.count) return [];
-  const out = [];
-  const curBreak = groupBreakdown(cur.rows);
-  if (curBreak.length) out.push({ fig: `₹${fmt(curBreak[0].total)}`, text: <>Your largest spending group this month is <b>{curBreak[0].group}</b>.</> });
-  const priors = series.slice(Math.max(0, idx - 3), idx).filter((s) => s.count);
-  if (priors.length) {
-    const catAvg = {};
-    priors.forEach((p) => { const m = {}; p.rows.filter((t) => !isCredit(t)).forEach((t) => (m[t.cat] = (m[t.cat] || 0) + t.amt)); Object.entries(m).forEach(([c, v]) => { (catAvg[c] = catAvg[c] || []).push(v); }); });
-    const curCat = {}; cur.rows.filter((t) => !isCredit(t)).forEach((t) => (curCat[t.cat] = (curCat[t.cat] || 0) + t.amt));
-    let best = null;
-    Object.entries(curCat).forEach(([c, v]) => { const arr = catAvg[c]; if (arr && arr.length) { const avg = arr.reduce((s, x) => s + x, 0) / arr.length; if (avg > 0) { const pct = Math.round(((v - avg) / avg) * 100); if (pct >= 20 && (!best || pct > best.pct)) best = { c, pct }; } } });
-    if (best) out.push({ fig: `+${best.pct}%`, text: <><b>{best.c}</b> is running {best.pct}% above your recent average.</> });
-  }
-  const prev = series[idx - 1];
-  if (prev && prev.count) { const d = cur.net - prev.net; out.push({ fig: `${d >= 0 ? "+" : "−"}₹${fmt(Math.abs(d))}`, text: d >= 0 ? <>You're keeping <b>more</b> than last month.</> : <>Your net position slipped versus last month.</> }); }
-  const invest = cur.rows.filter((t) => !isCredit(t) && CAT_GROUPS["Investments / Savings"].includes(t.cat)).reduce((s, t) => s + t.amt, 0);
-  if (invest > 0 && out.length < 3) out.push({ fig: `₹${fmt(invest)}`, text: <>You put <b>₹{fmt(invest)}</b> to work in investments.</> });
-  return out.slice(0, 3);
-}
-function computeHealth(txns, idx) {
-  const series = seriesAll(txns); const withData = series.filter((s) => s.count);
-  if (!withData.length) return null;
-  const cur = series[idx]; const factors = []; let wSum = 0, sSum = 0;
-  if (cur.credit > 0) { const sr = Math.max(0, Math.min(1, cur.net / cur.credit)); factors.push({ name: "Savings rate", weight: 40, pct: sr, val: `${Math.round(sr * 100)}%`, note: "Net saved as a share of income this month." }); wSum += 40; sSum += sr * 40; }
-  if (withData.length >= 2) { const ds = withData.map((s) => s.debit); const mean = ds.reduce((a, b) => a + b, 0) / ds.length; const variance = ds.reduce((a, b) => a + (b - mean) ** 2, 0) / ds.length; const cv = mean > 0 ? Math.sqrt(variance) / mean : 0; const stab = Math.max(0, Math.min(1, 1 - cv)); factors.push({ name: "Spending stability", weight: 30, pct: stab, val: `${Math.round(stab * 100)}%`, note: "How consistent your monthly spending is across recent months." }); wSum += 30; sSum += stab * 30; }
-  if (cur.debit > 0) { const fixed = cur.rows.filter((t) => !isCredit(t) && RHYTHM_CATS.includes(t.cat)).reduce((s, t) => s + t.amt, 0); const flex = 1 - Math.max(0, Math.min(1, fixed / cur.debit)); factors.push({ name: "Spending flexibility", weight: 30, pct: flex, val: `${Math.round(flex * 100)}%`, note: "Share of spending not locked in recurring commitments." }); wSum += 30; sSum += flex * 30; }
-  return { score: wSum > 0 ? Math.round((sSum / wSum) * 100) : 0, factors, incomeMissing: cur.credit <= 0 };
-}
-function avgSurplus(txns, idx) {
-  const s = seriesAll(txns).slice(Math.max(0, idx - 3), idx + 1).filter((x) => x.count && x.net > 0);
-  return s.length ? Math.round(s.reduce((a, x) => a + x.net, 0) / s.length) : 0;
 }
 
 /* -------------------------------------------------------------------- hooks */
@@ -645,11 +610,8 @@ function GlowField({ scrollYProgress }) {
 
 /* --------------------------------------------------------------- navigation */
 const SECTIONS = [
-  { id: "command", label: "Command" }, { id: "income", label: "Income & Expense" },
-  { id: "cashflow", label: "Cashflow" }, { id: "breakdown", label: "Spending" },
+  { id: "command", label: "Command" }, { id: "breakdown", label: "Spending" },
   { id: "transactions", label: "Ledger" }, { id: "quickadd", label: "Add" },
-  { id: "insights", label: "Insights" }, { id: "health", label: "Health" },
-  { id: "goals", label: "Goals" },
 ];
 function goTo(id, reduce) { document.getElementById(id)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
 function useScrollSpy(ids) {
@@ -848,90 +810,6 @@ function CommandCenter({ totals, month, isEmpty, onImport, onAdd, account }) {
   );
 }
 
-/* 2 — Income & Expense */
-function IncomeExpense({ totals }) {
-  const tot = totals.credit + totals.debit || 1;
-  const cells = [
-    { l: "Received", v: totals.credit, n: totals.rows.filter((t) => isCredit(t)).length, cls: "text-credit", Icon: TrendingUp, sub: "credits" },
-    { l: "Spent", v: totals.debit, n: totals.rows.filter((t) => !isCredit(t)).length, cls: "text-debit", Icon: TrendingDown, sub: "debits" },
-  ];
-  return (
-    <SectionShell id="income">
-      <Eyebrow>The two forces</Eyebrow>
-      <SectionTitle>Income &amp; Expense</SectionTitle>
-      <Sub>What came in, against what went out — and the gap between them.</Sub>
-      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
-        {cells.map((c) => (
-          <motion.div key={c.l} variants={vItem} className="bg-surface rounded-3xl p-5 sm:p-7 border border-line card-hover">
-            <div className="flex items-center gap-2 micro text-muted mb-4"><c.Icon size={13} className={c.cls} /> {c.l}</div>
-            <div className={`mono font-medium ${c.cls}`} style={{ fontSize: "clamp(1.6rem,7vw,2rem)", letterSpacing: "-.02em" }}><AnimatedNumber value={c.v} prefix="₹" /></div>
-            <div className="text-muted mt-2" style={{ fontSize: 12 }}>{c.n} {c.sub}</div>
-          </motion.div>
-        ))}
-      </motion.div>
-      <Reveal delay={3}>
-        <div className="flex rounded-full overflow-hidden" style={{ height: 8, background: "var(--surface2)", border: "1px solid var(--line)" }}>
-          <motion.div className="h-full" style={{ width: `${(totals.credit / tot) * 100}%`, background: "linear-gradient(90deg,var(--credit),#a4ccab)", transformOrigin: "left" }} initial={{ scaleX: 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ duration: 1.1, ease: EASE }} />
-          <motion.div className="h-full" style={{ width: `${(totals.debit / tot) * 100}%`, background: "linear-gradient(90deg,#dca689,var(--debit))", transformOrigin: "left" }} initial={{ scaleX: 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ duration: 1.1, ease: EASE, delay: 0.1 }} />
-        </div>
-      </Reveal>
-      <Reveal delay={4}>
-        <div className="flex items-baseline gap-4 mt-9">
-          <span className="serif italic text-2" style={{ fontSize: 19 }}>Net position</span>
-          <span className={`mono font-medium ${totals.net < 0 ? "text-debit" : "text-credit"}`} style={{ fontSize: "1.6rem" }}>{totals.net < 0 ? "−" : ""}<AnimatedNumber value={Math.abs(totals.net)} prefix="₹" /></span>
-        </div>
-      </Reveal>
-    </SectionShell>
-  );
-}
-
-/* 3 — Cashflow */
-function Cashflow({ txns, idx }) {
-  const series = useMemo(() => seriesAll(txns), [txns]);
-  const max = Math.max(1, ...series.map((s) => Math.max(s.credit, s.debit)));
-  const withData = series.filter((s) => s.count);
-  const avg = withData.length ? Math.round(withData.reduce((s, x) => s + x.debit, 0) / withData.length) : 0;
-  const best = withData.slice().sort((a, b) => b.net - a.net)[0];
-  const cur = series[idx], prev = series[idx - 1];
-  const caption = withData.length === 0 ? "Import or add transactions to chart your cashflow over time."
-    : prev && (cur.count || prev.count) ? (cur.net - prev.net >= 0 ? `You're ₹${fmt(Math.abs(cur.net - prev.net))} better off than last month.` : `You're ₹${fmt(Math.abs(cur.net - prev.net))} behind last month.`)
-    : (cur.net >= 0 ? "A positive month so far." : "Spending has outpaced income this month.");
-  return (
-    <SectionShell id="cashflow">
-      <Eyebrow>Over time</Eyebrow>
-      <SectionTitle>Cashflow</SectionTitle>
-      <Sub>Six months of movement. Everything but this month recedes.</Sub>
-      <Reveal delay={2}>
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-12 items-center">
-          <div>
-            <motion.div className="flex items-end gap-2.5 sm:gap-5 md:gap-7" style={{ height: 200 }} variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
-              {series.map((s, i) => {
-                const now = i === idx;
-                return (
-                  <motion.div key={s.mo.key} variants={vItem} className="flex-1 flex flex-col items-center justify-end gap-3 h-full" style={{ opacity: now ? 1 : 0.4 }}>
-                    <div className="flex-1 w-full flex items-end justify-center gap-1.5">
-                      <motion.div className="rounded-t-lg" title={`In ₹${fmt(s.credit)}`} style={{ width: "42%", maxWidth: 22, height: `${(s.credit / max) * 100}%`, background: now ? "linear-gradient(180deg,var(--credit),rgba(134,183,145,.3))" : "var(--text2)", transformOrigin: "bottom" }} initial={{ scaleY: 0 }} whileInView={{ scaleY: 1 }} viewport={{ once: true }} transition={{ duration: 0.85, ease: EASE, delay: i * 0.06 }} />
-                      <motion.div className="rounded-t-lg" title={`Out ₹${fmt(s.debit)}`} style={{ width: "42%", maxWidth: 22, height: `${(s.debit / max) * 100}%`, background: now ? "linear-gradient(180deg,var(--debit),rgba(210,145,110,.3))" : "var(--faint)", transformOrigin: "bottom" }} initial={{ scaleY: 0 }} whileInView={{ scaleY: 1 }} viewport={{ once: true }} transition={{ duration: 0.85, ease: EASE, delay: i * 0.06 + 0.05 }} />
-                    </div>
-                    <div className="mono" style={{ fontSize: 11, color: now ? "var(--accent-soft)" : "var(--muted)", fontWeight: now ? 600 : 400 }}>{s.mo.short}</div>
-                  </motion.div>
-                );
-              })}
-            </motion.div>
-            <div className="hr mt-3" />
-          </div>
-          <div className="flex flex-col gap-6">
-            <div><div className="micro text-muted mb-1.5">Avg monthly spend</div><div className="mono text-xl font-medium"><AnimatedNumber value={avg} prefix="₹" /></div></div>
-            <div className="hr" style={{ width: 40 }} />
-            <div><div className="micro text-muted mb-1.5">Best net month</div><div className="mono text-xl font-medium">{best ? `${best.mo.short} '${String(best.mo.y).slice(2)}` : "—"}</div></div>
-          </div>
-        </div>
-      </Reveal>
-      <Reveal delay={3}><p className="serif italic text-2 mt-9" style={{ fontSize: 18 }}>{caption}</p></Reveal>
-    </SectionShell>
-  );
-}
-
 /* 4 — Spending Breakdown */
 function Breakdown({ totals }) {
   const groups = useMemo(() => groupBreakdown(totals.rows), [totals.rows]);
@@ -977,10 +855,38 @@ function Breakdown({ totals }) {
 }
 
 /* 5 — Ledger (statement-style, month-scoped) */
+/* One ledger entry — shared by the Entries and By-day views */
+function TxnRow({ t, onDelete }) {
+  const isC = isCredit(t);
+  const d = new Date(t.date + "T00:00:00");
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
+      className="group grid items-center row-hover rounded-xl px-3 border-b border-line" style={{ gridTemplateColumns: "auto 1fr auto" }}>
+      <div className="flex flex-col items-center justify-center mr-5 py-4" style={{ width: 38 }}>
+        <span className="mono text-app" style={{ fontSize: 15, lineHeight: 1 }}>{d.getDate()}</span>
+        <span className="micro text-muted mt-1">{d.toLocaleString("default", { month: "short" })}</span>
+      </div>
+      <div className="py-4 min-w-0">
+        <div className="truncate text-app" style={{ fontSize: 14.5 }}>{t.note || "—"}</div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-muted" style={{ fontSize: 12 }}>{t.cat}</span>
+          {t.bank && t.bank !== "Axis" && t.bank !== "" && <span className="mono rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--surface2)", color: "var(--text-faint)", border: "1px solid var(--line2)" }}>{t.bank}</span>}
+        </div>
+      </div>
+      <div className="py-4 flex items-center gap-4 justify-end pl-4">
+        <span className="mono font-semibold whitespace-nowrap" style={{ fontSize: 15, color: isC ? "var(--credit)" : "var(--debit)" }}>{isC ? "+" : "−"}₹{fmt(t.amt)}</span>
+        <button onClick={() => onDelete(t.id)} className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-faint hover:text-debit bg-transparent border-0 cursor-pointer p-1 -m-1"><Trash2 size={14} /></button>
+      </div>
+    </motion.div>
+  );
+}
+
 function Transactions({ txns, globalIdx, onDelete }) {
   const [localIdx, setLocalIdx] = useState(globalIdx);
   const [type, setType] = useState("");
   const [q, setQ] = useState("");
+  const [view, setView] = useState("entries");
+  const [openDay, setOpenDay] = useState("");
   useEffect(() => { setLocalIdx(globalIdx); }, [globalIdx]);
   const month = MONTHS[localIdx];
   const allRows = useMemo(() => txns.filter((t) => t.date.startsWith(month.key)).slice().sort((a, b) => b.date.localeCompare(a.date)), [txns, month.key]);
@@ -990,6 +896,15 @@ function Transactions({ txns, globalIdx, onDelete }) {
     if (q) r = r.filter((t) => (t.note || "").toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase()));
     return r;
   }, [allRows, type, q]);
+  const days = useMemo(() => {
+    const m = {};
+    rows.forEach((t) => {
+      const d = (m[t.date] = m[t.date] || { date: t.date, rows: [], credit: 0, debit: 0 });
+      d.rows.push(t);
+      if (isCredit(t)) d.credit += t.amt; else d.debit += t.amt;
+    });
+    return Object.values(m).sort((x, y) => y.date.localeCompare(x.date));
+  }, [rows]);
   const credit = allRows.filter((t) => isCredit(t)).reduce((s, t) => s + t.amt, 0);
   const debit = allRows.filter((t) => !isCredit(t)).reduce((s, t) => s + t.amt, 0);
   return (
@@ -1018,7 +933,10 @@ function Transactions({ txns, globalIdx, onDelete }) {
       </div>
       <Reveal delay={2}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
+          <div className="flex flex-wrap items-center gap-3">
+            <Segmented id="view" value={view} onChange={setView} options={[{ l: "Entries", v: "entries" }, { l: "By day", v: "days" }]} />
+            <Segmented id="dir" value={type} onChange={setType} options={[{ l: "All", v: "" }, { l: "In", v: "credit" }, { l: "Out", v: "debit" }]} />
+          </div>
           <div className="relative w-full sm:w-auto">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the ledger…" className="lux-input rounded-full pl-8 pr-4 py-2 w-full sm:w-[200px]" style={{ fontSize: 13 }} />
@@ -1029,34 +947,44 @@ function Transactions({ txns, globalIdx, onDelete }) {
         {rows.length === 0 ? (
           <div className="text-muted lead py-12 text-center">{allRows.length === 0 ? <>Nothing in {month.long}. <span className="text-faint">Switch months or add an entry.</span></> : "No entries match."}</div>
         ) : (
-          <div className="max-h-[54vh] overflow-y-auto no-bar -mx-3">
-            <AnimatePresence initial={false}>
-              {rows.map((t) => {
-                const isC = isCredit(t);
-                const d = new Date(t.date + "T00:00:00");
+          view === "days" ? (
+            <div className="max-h-[54vh] overflow-y-auto no-bar -mx-3">
+              {days.map((d) => {
+                const dt = new Date(d.date + "T00:00:00");
+                const isOpen = openDay === d.date;
+                const net = d.credit - d.debit;
                 return (
-                  <motion.div key={t.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }}
-                    className="group grid items-center row-hover rounded-xl px-3 border-b border-line" style={{ gridTemplateColumns: "auto 1fr auto" }}>
-                    <div className="flex flex-col items-center justify-center mr-5 py-4" style={{ width: 38 }}>
-                      <span className="mono text-app" style={{ fontSize: 15, lineHeight: 1 }}>{d.getDate()}</span>
-                      <span className="micro text-muted mt-1">{d.toLocaleString("default", { month: "short" })}</span>
-                    </div>
-                    <div className="py-4 min-w-0">
-                      <div className="truncate text-app" style={{ fontSize: 14.5 }}>{t.note || "—"}</div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-muted" style={{ fontSize: 12 }}>{t.cat}</span>
-                        {t.bank && t.bank !== "Axis" && t.bank !== "" && <span className="mono rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--surface2)", color: "var(--text-faint)", border: "1px solid var(--line2)" }}>{t.bank}</span>}
+                  <div key={d.date} className="border-b border-line">
+                    <button onClick={() => setOpenDay(isOpen ? "" : d.date)} className="w-full grid items-center row-hover rounded-xl px-3 bg-transparent border-0 cursor-pointer text-left" style={{ gridTemplateColumns: "auto 1fr auto" }}>
+                      <div className="flex flex-col items-center justify-center mr-5 py-4" style={{ width: 38 }}>
+                        <span className="mono text-app" style={{ fontSize: 15, lineHeight: 1 }}>{dt.getDate()}</span>
+                        <span className="micro text-muted mt-1">{dt.toLocaleString("default", { month: "short" })}</span>
                       </div>
-                    </div>
-                    <div className="py-4 flex items-center gap-4 justify-end pl-4">
-                      <span className="mono font-semibold whitespace-nowrap" style={{ fontSize: 15, color: isC ? "var(--credit)" : "var(--debit)" }}>{isC ? "+" : "−"}₹{fmt(t.amt)}</span>
-                      <button onClick={() => onDelete(t.id)} className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-faint hover:text-debit bg-transparent border-0 cursor-pointer p-1 -m-1"><Trash2 size={14} /></button>
-                    </div>
-                  </motion.div>
+                      <div className="py-4 min-w-0">
+                        <div className="text-app" style={{ fontSize: 14.5 }}>{dt.toLocaleString("default", { weekday: "long" })}</div>
+                        <div className="mono mt-1 flex items-center gap-2 flex-wrap" style={{ fontSize: 11.5 }}>
+                          <span className="text-muted">{d.rows.length} {d.rows.length === 1 ? "entry" : "entries"}</span>
+                          {d.credit > 0 && <span className="text-credit">+₹{fmt(d.credit)}</span>}
+                          {d.debit > 0 && <span className="text-debit">−₹{fmt(d.debit)}</span>}
+                        </div>
+                      </div>
+                      <div className="py-4 flex items-center gap-3 justify-end pl-4">
+                        <span className="mono font-semibold whitespace-nowrap" style={{ fontSize: 15, color: net >= 0 ? "var(--credit)" : "var(--debit)" }}>{net >= 0 ? "+" : "−"}₹{fmt(Math.abs(net))}</span>
+                        <motion.span animate={{ rotate: isOpen ? 90 : 0 }} transition={{ duration: 0.3, ease: EASE }} className="text-muted shrink-0"><ChevronRight size={13} /></motion.span>
+                      </div>
+                    </button>
+                    {isOpen && <div className="pl-3 pb-2">{d.rows.map((t) => <TxnRow key={t.id} t={t} onDelete={onDelete} />)}</div>}
+                  </div>
                 );
               })}
-            </AnimatePresence>
-          </div>
+            </div>
+          ) : (
+            <div className="max-h-[54vh] overflow-y-auto no-bar -mx-3">
+              <AnimatePresence initial={false}>
+                {rows.map((t) => <TxnRow key={t.id} t={t} onDelete={onDelete} />)}
+              </AnimatePresence>
+            </div>
+          )
         )}
       </Reveal>
     </SectionShell>
@@ -1094,142 +1022,6 @@ function QuickAdd({ onAdd, month }) {
           <motion.button onClick={submit} whileTap={{ scale: 0.98 }} className="w-full accent-grad rounded-xl py-3.5 font-bold cursor-pointer border-0 flex items-center justify-center gap-2" style={{ color: "#1a160c", fontSize: 14 }}><Plus size={15} /> Add transaction</motion.button>
         </div>
       </Reveal>
-    </SectionShell>
-  );
-}
-
-/* 7 — Insights */
-function Insights({ txns, idx }) {
-  const items = useMemo(() => computeInsights(txns, idx), [txns, idx]);
-  return (
-    <SectionShell id="insights">
-      <Eyebrow>What to notice</Eyebrow>
-      <SectionTitle>Insights</SectionTitle>
-      <Sub>Observations drawn only from your own data — never invented.</Sub>
-      {items.length === 0 ? (
-        <Reveal delay={2}><div className="text-muted lead py-10">Not enough data yet. Insights surface as activity accrues.</div></Reveal>
-      ) : (
-        <motion.div className="grid grid-cols-1 md:grid-cols-3 gap-5" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }}>
-          {items.map((it, i) => (
-            <motion.div key={i} variants={vItem}>
-              <GlassCard className="p-7 h-full relative overflow-hidden">
-                <div className="absolute top-0 left-0 right-0" style={{ height: 2, background: "linear-gradient(90deg,var(--accent),transparent)" }} />
-                <div className="mono font-medium text-accent mb-3" style={{ fontSize: "1.7rem", letterSpacing: "-.02em" }}>{it.fig}</div>
-                <div className="serif" style={{ fontSize: 17, lineHeight: 1.5, fontWeight: 400 }}>{it.text}</div>
-              </GlassCard>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-    </SectionShell>
-  );
-}
-
-/* 8 — Health Score */
-function HealthScore({ txns, idx }) {
-  const health = useMemo(() => computeHealth(txns, idx), [txns, idx]);
-  return (
-    <SectionShell id="health">
-      <Eyebrow>One signal</Eyebrow>
-      <SectionTitle>Health score</SectionTitle>
-      <Sub>A transparent blend of savings rate, stability, and how much room you keep.</Sub>
-      {!health ? (
-        <Reveal delay={2}><div className="text-muted lead py-10">Record a month of activity to compute your score.</div></Reveal>
-      ) : (
-        <Reveal delay={2}>
-          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-14 items-center">
-            <Gauge score={health.score} />
-            <div className="flex flex-col gap-6">
-              {health.factors.map((f, i) => (
-                <div key={f.name} title={f.note}>
-                  <div className="flex justify-between items-baseline mb-2"><span className="font-medium" style={{ fontSize: 14 }}>{f.name}<span className="micro text-faint ml-2">{f.weight}%</span></span><span className="mono text-2" style={{ fontSize: 14 }}>{f.val}</span></div>
-                  <Bar pct={f.pct * 100} color="linear-gradient(90deg,var(--accent),var(--accent-soft))" delay={0.3 + i * 0.12} h={5} />
-                </div>
-              ))}
-              {health.incomeMissing && <div className="text-muted" style={{ fontSize: 12 }}>No income this month — savings rate is excluded and weights rebalance.</div>}
-            </div>
-          </div>
-        </Reveal>
-      )}
-    </SectionShell>
-  );
-}
-function Gauge({ score }) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true, amount: 0.5 });
-  const reduce = useReducedMotion();
-  const R = 112, C = 2 * Math.PI * R, frac = score / 100;
-  const display = useCountUp(score, inView);
-  const targetOffset = C * (1 - frac);
-  const band = score >= 70 ? "#86B791" : score >= 40 ? "#CBB079" : "#D2916E";
-  return (
-    <div ref={ref} className="relative mx-auto" style={{ width: 270, height: 270 }}>
-      <svg width="270" height="270" viewBox="0 0 270 270">
-        <circle cx="135" cy="135" r={R} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="12" />
-        <motion.circle cx="135" cy="135" r={R} fill="none" stroke={band} strokeWidth="12" strokeLinecap="round" strokeDasharray={C} transform="rotate(-90 135 135)"
-          style={{ filter: `drop-shadow(0 0 8px ${band}55)` }}
-          initial={{ strokeDashoffset: reduce ? targetOffset : C }} animate={inView ? { strokeDashoffset: targetOffset } : {}} transition={{ duration: 1.5, ease: EASE }} />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="mono font-medium" style={{ fontSize: "3.4rem", letterSpacing: "-.03em" }}>{fmt(display)}</span>
-        <span className="micro text-muted mt-1">Health score</span>
-      </div>
-    </div>
-  );
-}
-
-/* 9 — Goals */
-function Goals({ txns, idx }) {
-  const [goals, setGoals] = useState([{ id: 1, name: "Bali trip", target: 100000, saved: 0 }, { id: 2, name: "Emergency fund", target: 200000, saved: 0 }]);
-  const [name, setName] = useState("");
-  const [target, setTarget] = useState("");
-  const [fundId, setFundId] = useState(null);
-  const [fundAmt, setFundAmt] = useState("");
-  const pace = useMemo(() => avgSurplus(txns, idx), [txns, idx]);
-  const add = () => { const t = parseFloat(target) || 0; if (!name.trim() || t <= 0) return; setGoals((g) => [...g, { id: Date.now(), name: name.trim(), target: t, saved: 0 }]); setName(""); setTarget(""); };
-  const confirmFund = () => { const v = parseFloat(fundAmt) || 0; if (v > 0) setGoals((g) => g.map((x) => (x.id === fundId ? { ...x, saved: x.saved + v } : x))); setFundId(null); setFundAmt(""); };
-  const remove = (id) => setGoals((g) => g.filter((x) => x.id !== id));
-  return (
-    <SectionShell id="goals">
-      <Eyebrow>Looking forward</Eyebrow>
-      <SectionTitle>Goals</SectionTitle>
-      <Sub>Set a target. Projected dates draw on your average recent surplus.</Sub>
-      <motion.div className="flex flex-col gap-4 mb-7" variants={vStagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.2 }}>
-        <AnimatePresence>
-          {goals.length === 0 && <div className="text-muted lead py-8">No goals yet. Set your first below.</div>}
-          {goals.map((g) => {
-            const saved = Math.min(g.saved, g.target);
-            const pct = g.target > 0 ? Math.min(100, (saved / g.target) * 100) : 0;
-            const remaining = Math.max(0, g.target - saved);
-            let eta = "Fund it to project a date";
-            if (remaining <= 0) eta = "Goal reached ✓";
-            else if (pace > 0) { const months = Math.ceil(remaining / pace); const d = new Date(); d.setMonth(d.getMonth() + months); eta = `~${months} ${months === 1 ? "month" : "months"} · ${d.toLocaleString("default", { month: "short", year: "numeric" })}`; }
-            return (
-              <motion.div key={g.id} layout variants={vItem} exit={{ opacity: 0, x: -16 }} className="bg-surface rounded-3xl border border-line p-7 card-hover">
-                <div className="flex justify-between items-start gap-4 mb-4"><div><div className="font-medium" style={{ fontSize: 15 }}>{g.name}</div><div className="text-muted mt-1" style={{ fontSize: 12 }}>{pct.toFixed(0)}% funded</div></div><div className="mono text-accent text-right whitespace-nowrap" style={{ fontSize: 12 }}>{eta}</div></div>
-                <div className="rounded-full overflow-hidden mb-2.5" style={{ height: 7, background: "var(--surface2)" }}><motion.div className="h-full rounded-full" style={{ background: "linear-gradient(90deg,var(--credit),#a4ccab)", transformOrigin: "left" }} initial={{ scaleX: 0 }} animate={{ scaleX: pct / 100 }} transition={{ duration: 0.9, ease: EASE }} /></div>
-                <div className="flex justify-between mono text-2" style={{ fontSize: 13 }}><span>₹{fmt(saved)}</span><span className="text-muted">₹{fmt(g.target)}</span></div>
-                <div className="flex gap-2 mt-4"><button onClick={() => { setFundAmt(""); setFundId(g.id); }} className="rounded-full px-4 py-1.5 font-semibold text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Add funds</button><button onClick={() => remove(g.id)} className="rounded-full px-4 py-1.5 font-semibold text-muted bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 12 }}>Remove</button></div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </motion.div>
-      <Reveal delay={3}>
-        <div className="grid gap-3 items-end bg-surface rounded-3xl p-6" style={{ border: "1px dashed var(--line2)", gridTemplateColumns: "1fr 150px auto" }}>
-          <Field label="Goal name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New laptop" className="lux-input rounded-xl px-3.5 py-3 w-full" style={{ fontSize: 14 }} /></Field>
-          <Field label="Target ₹"><input type="number" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="50000" className="lux-input rounded-xl px-3.5 py-3 w-full" style={{ fontSize: 14 }} /></Field>
-          <motion.button onClick={add} whileTap={{ scale: 0.98 }} className="accent-grad rounded-xl px-6 py-3 font-bold cursor-pointer border-0 mb-4" style={{ color: "#1a160c", fontSize: 14 }}>Add</motion.button>
-        </div>
-      </Reveal>
-      <Reveal delay={3}><div className="text-muted mt-4 flex items-center gap-1.5" style={{ fontSize: 12 }}><Target size={12} /> Kept in memory for this demo; persists to your Sheets backend in production.</div></Reveal>
-      <Dialog open={fundId != null} title="Add funds" onClose={() => { setFundId(null); setFundAmt(""); }}>
-        <input autoFocus type="number" value={fundAmt} onChange={(e) => setFundAmt(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmFund(); }} placeholder="Amount ₹" className="lux-input rounded-xl px-3.5 py-3 w-full mb-4" style={{ fontSize: 14 }} />
-        <div className="flex gap-2 justify-end">
-          <button onClick={() => { setFundId(null); setFundAmt(""); }} className="rounded-full px-4 py-2 text-2 bg-surface2 border border-line2 cursor-pointer" style={{ fontSize: 13 }}>Cancel</button>
-          <button onClick={confirmFund} className="accent-grad rounded-full px-4 py-2 font-bold cursor-pointer border-0" style={{ color: "#1a160c", fontSize: 13 }}>Add</button>
-        </div>
-      </Dialog>
     </SectionShell>
   );
 }
@@ -1583,14 +1375,9 @@ function Dashboard({ user, signOut }) {
         <motion.div ref={scrollRef} className="relative screen-h overflow-y-auto overflow-x-hidden no-bar ptr-scroll" style={{ zIndex: 1, scrollBehavior: "smooth", overscrollBehaviorY: "contain" }}
           animate={{ y: pull }} transition={{ type: "spring", stiffness: 500, damping: 40 }}>
           <CommandCenter totals={totals} month={month} isEmpty={viewTxns.length === 0} onImport={() => setImportOpen(true)} onAdd={() => goTo("quickadd", false)} account={account} />
-          <IncomeExpense totals={totals} />
-          <Cashflow txns={viewTxns} idx={idx} />
           <Breakdown totals={totals} />
           <Transactions txns={viewTxns} globalIdx={idx} onDelete={removeTransaction} />
           <QuickAdd onAdd={handleAdd} month={month} />
-          <Insights txns={viewTxns} idx={idx} />
-          <HealthScore txns={viewTxns} idx={idx} />
-          <Goals txns={viewTxns} idx={idx} />
         </motion.div>
 
         <Toast msg={toast} />
